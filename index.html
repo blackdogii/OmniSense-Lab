@@ -3,55 +3,137 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniSense Lab - 全腳位診斷</title>
+    <title>OmniSense Lab - 專業腳位診斷</title>
+    <!-- Tailwind CSS -->
     <script src="https://cdn.tailwindcss.com"></script>
+    <!-- p5.js -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
+    <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        body { background-color: #0f172a; color: #f8fafc; font-family: sans-serif; }
-        .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
-        .canvas-container canvas { border-radius: 0.5rem; width: 100% !important; height: auto !important; }
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; }
+        .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+        .canvas-container canvas { border-radius: 1rem; width: 100% !important; height: auto !important; }
+        .pin-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .pin-btn:active { transform: scale(0.9); }
+        /* 自定義捲軸 */
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 10px; }
     </style>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-8 min-h-screen">
     <div class="max-w-7xl mx-auto">
-        <header class="flex justify-between items-center mb-6">
-            <div>
-                <h1 class="text-2xl font-bold text-cyan-400">OmniSense Lab - 腳位診斷模式</h1>
-                <p class="text-xs text-slate-400">支援測試 GPIO 0-10, 18-21 (共 15 頻道)</p>
+        <!-- 頁首 -->
+        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-cyan-500 p-2 rounded-xl shadow-lg shadow-cyan-500/20">
+                    <i data-lucide="microscope" class="text-white w-8 h-8"></i>
+                </div>
+                <div>
+                    <h1 class="text-3xl font-black text-cyan-400 tracking-tight">OmniSense Lab</h1>
+                    <p class="text-slate-400 text-xs font-medium uppercase tracking-widest">ESP32-C3 專業科學實驗平台</p>
+                </div>
             </div>
-            <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-2 rounded-full font-bold transition-all shadow-lg">連結裝置</button>
+            <div class="flex gap-3">
+                <button id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30">
+                    <i data-lucide="bluetooth"></i> 連結裝置
+                </button>
+                <button id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg">
+                    <i data-lucide="unplug"></i> 斷開
+                </button>
+            </div>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
-            <!-- Sidebar: Config -->
-            <div class="lg:col-span-1 flex flex-col gap-4">
-                <div class="glass-card p-5 rounded-xl">
-                    <p class="text-sm font-bold mb-3 text-cyan-300">選擇測試腳位</p>
-                    <div class="grid grid-cols-4 gap-2" id="channelGrid"></div>
-                    <p class="text-[10px] text-rose-400 mt-4 leading-tight">注意：GPIO 6, 7, 10 可能導致系統重啟。20, 21 為 Serial 專用。</p>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
+            <!-- 側邊欄：配置區域 -->
+            <div class="lg:col-span-1 flex flex-col gap-6">
+                
+                <!-- 腳位選擇區域 -->
+                <div class="glass-card p-6 rounded-3xl shadow-2xl">
+                    <div class="flex items-center gap-2 mb-6 border-b border-slate-700/50 pb-3">
+                        <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
+                        <h2 class="text-sm font-bold text-slate-200">選擇測試腳位</h2>
+                    </div>
+
+                    <!-- 類比分類 -->
+                    <div class="mb-5">
+                        <p class="text-[10px] font-bold text-cyan-500 uppercase mb-2 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></span> 類比輸入 (ADC1)
+                        </p>
+                        <div class="grid grid-cols-2 gap-2" id="group-analog"></div>
+                    </div>
+
+                    <!-- 支援分類 -->
+                    <div class="mb-5">
+                        <p class="text-[10px] font-bold text-amber-500 uppercase mb-2 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> 支援/複合 (Hybrid)
+                        </p>
+                        <div class="grid grid-cols-2 gap-2" id="group-support"></div>
+                    </div>
+
+                    <!-- 數位分類 -->
+                    <div class="mb-5">
+                        <p class="text-[10px] font-bold text-emerald-500 uppercase mb-2 flex items-center gap-1">
+                            <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> 數位輸入 (Input Only)
+                        </p>
+                        <div class="grid grid-cols-2 gap-2" id="group-digital"></div>
+                    </div>
+
+                    <p class="text-[9px] text-slate-500 leading-relaxed italic">
+                        * 類比腳位 (0-4) 最穩定；G2 建議外接電容；G8/G9/G20/G21 僅限數位判斷。
+                    </p>
                 </div>
 
-                <div class="glass-card p-5 rounded-xl space-y-4">
+                <!-- 性能調整區域 -->
+                <div class="glass-card p-6 rounded-3xl shadow-2xl space-y-6">
                     <div>
-                        <label class="text-xs text-slate-400">頻率 (Hz): <span id="freqLabel">50</span></label>
-                        <input type="range" id="freqRange" min="1" max="200" value="50" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                        <div class="flex justify-between items-center mb-4">
+                            <label class="text-xs font-bold text-slate-400 uppercase">取樣頻率 (Hz)</label>
+                            <span id="freqLabel" class="text-lg font-mono font-bold text-cyan-400">50</span>
+                        </div>
+                        <input type="range" id="freqRange" min="10" max="200" value="50" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
                     </div>
+
                     <div>
-                        <label class="text-xs text-slate-400">模式</label>
-                        <select id="resSelect" class="w-full bg-slate-800 border border-slate-700 rounded p-1 text-sm">
-                            <option value="0">8-bit (Digital Test)</option>
-                            <option value="1" selected>12-bit (Standard ADC)</option>
+                        <label class="text-xs font-bold text-slate-400 uppercase mb-3 block">資料模式</label>
+                        <select id="resSelect" class="w-full bg-slate-800/80 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none transition-all">
+                            <option value="0">8-bit (高速/數位測試)</option>
+                            <option value="1" selected>12-bit (標準 ADC 實驗)</option>
+                            <option value="2">16-bit (精密科研分析)</option>
                         </select>
                     </div>
-                    <button id="applyBtn" class="w-full py-2 bg-cyan-700 hover:bg-cyan-600 rounded font-bold text-sm transition-all">套用設定</button>
+
+                    <button id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm tracking-widest uppercase transition-all shadow-xl shadow-cyan-900/20 active:scale-95">
+                        套用配置並同步
+                    </button>
+                    <div id="syncIndicator" class="flex items-center justify-center gap-2 text-[10px] text-slate-500 italic">
+                        <i data-lucide="refresh-cw" class="w-3 h-3"></i> 待與硬體握手
+                    </div>
                 </div>
             </div>
 
-            <!-- Content: Graph & Cards -->
-            <div class="lg:col-span-3 space-y-6">
-                <div id="canvasParent" class="canvas-container w-full aspect-video bg-black rounded-xl border border-slate-800"></div>
-                <div class="grid grid-cols-3 md:grid-cols-5 gap-3" id="dataCards"></div>
+            <!-- 主顯示區域 -->
+            <div class="lg:col-span-3 space-y-8">
+                <!-- 圖表區 -->
+                <div class="glass-card p-6 rounded-[2rem] shadow-2xl relative overflow-hidden">
+                    <div class="absolute top-0 left-0 w-1 h-full bg-cyan-500/50"></div>
+                    <div class="flex justify-between items-center mb-6">
+                        <div class="flex items-center gap-3">
+                            <i data-lucide="line-chart" class="text-cyan-400"></i>
+                            <h2 class="text-xl font-bold tracking-tight">即時物理數據波形</h2>
+                        </div>
+                        <div class="flex gap-2">
+                            <button id="clearBtn" class="text-[10px] font-bold bg-slate-700/50 px-4 py-2 rounded-xl hover:bg-slate-700 transition-colors uppercase tracking-widest text-slate-300">清除</button>
+                            <button id="exportBtn" class="text-[10px] font-bold bg-emerald-600/80 px-4 py-2 rounded-xl hover:bg-emerald-600 transition-colors uppercase tracking-widest shadow-lg shadow-emerald-900/20">匯出 CSV</button>
+                        </div>
+                    </div>
+                    <div id="canvasParent" class="canvas-container w-full aspect-[21/9] bg-slate-950/50 rounded-2xl border border-slate-800/50 shadow-inner"></div>
+                </div>
+
+                <!-- 數據卡片區域 -->
+                <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" id="dataCards">
+                    <!-- 卡片由 JS 動態生成 -->
+                </div>
             </div>
         </div>
     </div>
@@ -60,31 +142,48 @@
         const SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
         const TX_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
         const RX_UUID = "0000ffe2-0000-1000-8000-00805f9b34fb";
-        const ALL_PINS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 19, 20, 21];
+
+        // 腳位資訊定義 (與韌體 ALL_PINS 一致)
+        const PINS_CONFIG = [
+            { id: 0, gpio: 0, type: 'analog', label: '類比 G0' },
+            { id: 1, gpio: 1, type: 'analog', label: '類比 G1' },
+            { id: 2, gpio: 2, type: 'support', label: '支援 G2' },
+            { id: 3, gpio: 3, type: 'analog', label: '類比 G3' },
+            { id: 4, gpio: 4, type: 'analog', label: '類比 G4' },
+            { id: 5, gpio: 5, type: 'disabled', label: '禁用 G5' }, // 藍牙衝突
+            { id: 6, gpio: 8, type: 'digital', label: '數位 G8' },
+            { id: 7, gpio: 9, type: 'digital', label: '數位 G9' },
+            { id: 8, gpio: 18, type: 'disabled', label: 'G18' },
+            { id: 9, gpio: 19, type: 'disabled', label: 'G19' },
+            { id: 10, gpio: 20, type: 'digital', label: '數位 G20' },
+            { id: 11, gpio: 21, type: 'digital', label: '數位 G21' }
+        ];
 
         let bleDevice, txChar, rxChar;
-        let activeMask = 0x0001; 
-        let dataHistory = Array.from({length: 15}, () => []);
-        const MAX_HISTORY = 150;
+        let activeMask = 0x0001; // 預設開啟 G0
+        let dataHistory = Array.from({length: 12}, () => []);
+        const MAX_HISTORY = 120;
 
+        // 解包邏輯
         function unpack(view) {
             if(view.getUint8(0) !== 0xAA) return null;
             const mask = (view.getUint8(1) << 8) | view.getUint8(2);
             const res = view.getUint8(3);
             const ts = view.getUint32(4, true);
             const values = []; let pos = 8;
-            let count = 0; for(let i=0; i<15; i++) if((mask >> i) & 1) count++;
+            let activeCount = 0;
+            for(let i=0; i<12; i++) if((mask >> i) & 1) activeCount++;
 
             if(res === 0) {
-                for(let i=0; i<count; i++) values.push(view.getUint8(pos++) << 4);
+                for(let i=0; i<activeCount; i++) values.push(view.getUint8(pos++) << 4);
             } else if(res === 1) {
-                for(let i=0; i<count; i+=2) {
+                for(let i=0; i<activeCount; i+=2) {
                     const b1 = view.getUint8(pos++), b2 = view.getUint8(pos++), b3 = view.getUint8(pos++);
                     values.push((b1 << 4) | (b2 >> 4));
-                    if(values.length < count) values.push(((b2 & 0x0F) << 8) | b3);
+                    if(values.length < activeCount) values.push(((b2 & 0x0F) << 8) | b3);
                 }
             } else {
-                for(let i=0; i<count; i++) values.push((view.getUint8(pos++) << 8) | view.getUint8(pos++));
+                for(let i=0; i<activeCount; i++) values.push((view.getUint8(pos++) << 8) | view.getUint8(pos++));
             }
             return { ts, mask, values };
         }
@@ -93,23 +192,28 @@
             try {
                 bleDevice = await navigator.bluetooth.requestDevice({ filters:[{name:'OmniSense-Base'}], optionalServices:[SERVICE_UUID]});
                 const server = await bleDevice.gatt.connect();
-                txChar = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(TX_UUID);
-                rxChar = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(RX_UUID);
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                txChar = await service.getCharacteristic(TX_UUID);
+                rxChar = await service.getCharacteristic(RX_UUID);
                 await txChar.startNotifications();
                 txChar.addEventListener('characteristicvaluechanged', (e) => {
                     const d = unpack(e.target.value);
                     if(!d) return;
                     let vIdx = 0;
-                    for(let i=0; i<15; i++) {
+                    for(let i=0; i<12; i++) {
                         if((d.mask >> i) & 1) {
                             const val = d.values[vIdx++];
                             dataHistory[i].push(val);
                             if(dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
-                            document.getElementById(`val-${i}`).innerText = val;
+                            const valEl = document.getElementById(`val-${i}`);
+                            if(valEl) valEl.innerText = val;
                         }
                     }
                 });
-                document.getElementById('connectBtn').innerText = "已連線";
+                document.getElementById('connectBtn').classList.add('hidden');
+                document.getElementById('disconnectBtn').classList.remove('hidden');
+                document.getElementById('syncIndicator').innerHTML = '<i data-lucide="check-circle" class="w-3 h-3 text-cyan-400"></i> 硬體已連線';
+                lucide.createIcons();
             } catch(e) { console.error(e); }
         }
 
@@ -119,51 +223,92 @@
             const r = parseInt(document.getElementById('resSelect').value);
             const buf = new Uint8Array([0x01, (activeMask >> 8) & 0xFF, activeMask & 0xFF, (f >> 8) & 0xFF, f & 0xFF, r]);
             await rxChar.writeValue(buf);
+            document.getElementById('syncIndicator').innerHTML = `<i data-lucide="zap" class="text-amber-400 w-3 h-3"></i> 同步完成: ${f}Hz`;
+            lucide.createIcons();
         }
 
+        // p5.js 繪圖
         new p5((p) => {
             p.setup = () => {
                 const par = document.getElementById('canvasParent');
                 p.createCanvas(par.offsetWidth, par.offsetHeight).parent(par);
             };
             p.draw = () => {
-                p.background(10, 10, 20);
-                const colors = ['#22d3ee', '#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa', '#f472b6', '#4ade80', '#fb923c', '#818cf8', '#2dd4bf', '#a78bfa', '#f87171', '#fbbf24', '#60a5fa'];
-                for(let i=0; i<15; i++) {
-                    if(!((activeMask >> i) & 1)) continue;
+                p.background(10, 15, 30);
+                const colors = ['#22d3ee', '#818cf8', '#f59e0b', '#34d399', '#f472b6', '#000000', '#10b981', '#10b981', '#000000', '#000000', '#3b82f6', '#3b82f6'];
+                p.strokeWeight(2.5);
+                for(let i=0; i<12; i++) {
+                    if(!((activeMask >> i) & 1) || PINS_CONFIG[i].type === 'disabled') continue;
                     p.stroke(colors[i]); p.noFill(); p.beginShape();
                     dataHistory[i].forEach((v, idx) => {
-                        p.vertex(p.map(idx, 0, MAX_HISTORY, 0, p.width), p.map(v, 0, 4095, p.height-20, 20));
+                        p.vertex(p.map(idx, 0, MAX_HISTORY, 0, p.width), p.map(v, 0, 4095, p.height-30, 30));
                     });
                     p.endShape();
                 }
             };
+            p.windowResized = () => {
+                const par = document.getElementById('canvasParent');
+                p.resizeCanvas(par.offsetWidth, par.offsetHeight);
+            };
         });
 
+        // 初始化 UI
         window.onload = () => {
-            const grid = document.getElementById('channelGrid');
-            const cards = document.getElementById('dataCards');
-            ALL_PINS.forEach((p, i) => {
+            PINS_CONFIG.forEach((p) => {
+                if(p.type === 'disabled') return;
+                
+                const group = document.getElementById(`group-${p.type}`);
                 const b = document.createElement('button');
-                b.innerText = `G${p}`;
-                b.className = `p-1 rounded border text-[9px] ${i==0?'bg-cyan-900 border-cyan-500':'border-slate-700 text-slate-500'}`;
-                b.onclick = (e) => {
-                    activeMask ^= (1 << i);
-                    const active = (activeMask >> i) & 1;
-                    e.target.className = `p-1 rounded border text-[9px] ${active?'bg-cyan-900 border-cyan-500':'border-slate-700 text-slate-500'}`;
-                    document.getElementById(`card-${i}`).style.opacity = active ? "1" : "0.2";
-                };
-                grid.appendChild(b);
+                b.id = `btn-${p.id}`;
+                b.innerHTML = `<span class="opacity-50">GPIO</span> ${p.gpio}`;
+                b.className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${p.id === 0 ? 'bg-cyan-500 border-cyan-400 text-white shadow-lg' : 'border-slate-700 text-slate-500 hover:border-slate-500'}`;
+                b.onclick = () => togglePin(p.id);
+                group.appendChild(b);
 
+                const cards = document.getElementById('dataCards');
                 const c = document.createElement('div');
-                c.id = `card-${i}`; c.className = `glass-card p-2 rounded transition-opacity ${i==0?'':'opacity-20'}`;
-                c.innerHTML = `<p class="text-[8px] text-slate-500">GPIO ${p}</p><p id="val-${i}" class="text-lg font-mono font-bold text-cyan-400">---</p>`;
+                c.id = `card-${p.id}`;
+                c.className = `glass-card p-4 rounded-2xl transition-all duration-500 ${p.id === 0 ? 'opacity-100' : 'opacity-20 translate-y-2'}`;
+                c.innerHTML = `
+                    <div class="flex justify-between items-center mb-1">
+                        <span class="text-[9px] uppercase font-black text-slate-500">G${p.gpio}</span>
+                        <span class="w-1.5 h-1.5 rounded-full ${p.type === 'analog' ? 'bg-cyan-500' : p.type === 'support' ? 'bg-amber-500' : 'bg-emerald-500'}"></span>
+                    </div>
+                    <p id="val-${p.id}" class="text-2xl font-mono font-black text-slate-100">---</p>
+                `;
                 cards.appendChild(c);
             });
+
             document.getElementById('freqRange').oninput = (e) => document.getElementById('freqLabel').innerText = e.target.value;
             document.getElementById('connectBtn').onclick = connect;
+            document.getElementById('disconnectBtn').onclick = () => bleDevice.gatt.disconnect();
             document.getElementById('applyBtn').onclick = apply;
+            document.getElementById('clearBtn').onclick = () => dataHistory = Array.from({length: 12}, () => []);
+            document.getElementById('exportBtn').onclick = () => {
+                let csv = "Time,GPIO,Value\n";
+                dataHistory.forEach((h, i) => h.forEach(v => csv += `${Date.now()},${PINS_CONFIG[i].gpio},${v}\n`));
+                const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+                a.download = 'OmniSense_Lab.csv'; a.click();
+            };
+            lucide.createIcons();
         };
+
+        function togglePin(id) {
+            activeMask ^= (1 << id);
+            const active = (activeMask >> id) & 1;
+            const btn = document.getElementById(`btn-${id}`);
+            const card = document.getElementById(`card-${id}`);
+            
+            // UI 反饋
+            const typeColor = PINS_CONFIG[id].type === 'analog' ? 'bg-cyan-500 border-cyan-400' : 
+                             PINS_CONFIG[id].type === 'support' ? 'bg-amber-500 border-amber-400' : 'bg-emerald-600 border-emerald-500';
+            
+            btn.className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${active ? typeColor + ' text-white shadow-lg' : 'border-slate-700 text-slate-500 hover:border-slate-500'}`;
+            card.className = `glass-card p-4 rounded-2xl transition-all duration-500 ${active ? 'opacity-100 scale-100' : 'opacity-20 scale-95 translate-y-2'}`;
+            
+            document.getElementById('syncIndicator').innerHTML = '<i data-lucide="alert-circle" class="text-amber-500 w-3 h-3"></i> 腳位已更動，請點擊套用';
+            lucide.createIcons();
+        }
     </script>
 </body>
 </html>
