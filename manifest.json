@@ -1,0 +1,23 @@
+{
+  "short_name": "OmniSense",
+  "name": "OmniSense Lab - 全感官實驗室",
+  "description": "無線感測主控台，支援多種物理實驗數據視覺化與遊戲互動。",
+  "icons": [
+    {
+      "src": "assets/icons/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "assets/icons/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ],
+  "start_url": "index.html",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0f172a",
+  "theme_color": "#0f172a"
+}
