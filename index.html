@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OmniSense Lab - 全感官實驗室</title>
+    <title>OmniSense Lab - 全腳位診斷</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js"></script>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -11,83 +11,47 @@
         body { background-color: #0f172a; color: #f8fafc; font-family: sans-serif; }
         .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); }
         .canvas-container canvas { border-radius: 0.5rem; width: 100% !important; height: auto !important; }
-        input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { opacity: 1; }
     </style>
 </head>
 <body class="p-4 md:p-8">
-    <div class="max-w-6xl mx-auto">
-        <!-- Header -->
-        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+    <div class="max-w-7xl mx-auto">
+        <header class="flex justify-between items-center mb-6">
             <div>
-                <h1 class="text-3xl font-bold text-cyan-400">OmniSense Lab</h1>
-                <p class="text-slate-400 text-sm">全感官實驗室 - 無線感測主控台</p>
+                <h1 class="text-2xl font-bold text-cyan-400">OmniSense Lab - 腳位診斷模式</h1>
+                <p class="text-xs text-slate-400">支援測試 GPIO 0-10, 18-21 (共 15 頻道)</p>
             </div>
-            <div class="flex gap-2">
-                <button id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-6 py-2 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/20">
-                    <i data-lucide="bluetooth"></i> 連結裝置
-                </button>
-                <button id="disconnectBtn" class="hidden flex items-center gap-2 bg-red-600 hover:bg-red-500 px-6 py-2 rounded-full transition-all font-bold">
-                    <i data-lucide="link-2-off"></i> 斷開連線
-                </button>
-            </div>
+            <button id="connectBtn" class="bg-cyan-600 hover:bg-cyan-500 px-6 py-2 rounded-full font-bold transition-all shadow-lg">連結裝置</button>
         </header>
 
-        <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
-            <!-- Left: System Controls -->
-            <div class="glass-card p-6 rounded-2xl shadow-xl flex flex-col gap-6">
-                <h2 class="text-xl font-semibold flex items-center gap-2 border-b border-slate-700 pb-2">
-                    <i data-lucide="settings"></i> 系統配置
-                </h2>
-                
-                <!-- Channels Toggle -->
-                <div>
-                    <p class="text-sm text-slate-400 mb-3">啟用腳位 (GPIO)</p>
-                    <div class="grid grid-cols-3 gap-2" id="channelGrid"></div>
+        <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+            <!-- Sidebar: Config -->
+            <div class="lg:col-span-1 flex flex-col gap-4">
+                <div class="glass-card p-5 rounded-xl">
+                    <p class="text-sm font-bold mb-3 text-cyan-300">選擇測試腳位</p>
+                    <div class="grid grid-cols-4 gap-2" id="channelGrid"></div>
+                    <p class="text-[10px] text-rose-400 mt-4 leading-tight">注意：GPIO 6, 7, 10 可能導致系統重啟。20, 21 為 Serial 專用。</p>
                 </div>
 
-                <!-- Frequency & Resolution with Linking Logic -->
-                <div class="space-y-6">
+                <div class="glass-card p-5 rounded-xl space-y-4">
                     <div>
-                        <label class="text-sm text-slate-400 block mb-2">解析度 (Bit Depth)</label>
-                        <select id="resSelect" class="w-full bg-slate-800 border border-slate-700 rounded-md p-2 focus:ring-2 focus:ring-cyan-500 outline-none">
-                            <option value="0">8-bit (極速模式 - Max 1000Hz)</option>
-                            <option value="1" selected>12-bit (標準模式 - Max 500Hz)</option>
-                            <option value="2">16-bit (精密模式 - Max 100Hz)</option>
+                        <label class="text-xs text-slate-400">頻率 (Hz): <span id="freqLabel">50</span></label>
+                        <input type="range" id="freqRange" min="1" max="200" value="50" class="w-full h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
+                    </div>
+                    <div>
+                        <label class="text-xs text-slate-400">模式</label>
+                        <select id="resSelect" class="w-full bg-slate-800 border border-slate-700 rounded p-1 text-sm">
+                            <option value="0">8-bit (Digital Test)</option>
+                            <option value="1" selected>12-bit (Standard ADC)</option>
                         </select>
                     </div>
-
-                    <div>
-                        <div class="flex justify-between items-center mb-2">
-                            <label class="text-sm text-slate-400">取樣頻率 (Hz)</label>
-                            <input type="number" id="freqInput" value="100" min="10" max="500" class="w-20 bg-slate-800 border border-slate-700 rounded px-2 py-1 text-cyan-400 font-mono focus:outline-none focus:border-cyan-500">
-                        </div>
-                        <input type="range" id="freqRange" min="10" max="500" value="100" step="24.5" class="w-full h-2 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-400">
-                        <p id="limitHint" class="text-[10px] text-slate-500 mt-2 italic">* 解析度會限制頻率上限以維持穩定性</p>
-                    </div>
+                    <button id="applyBtn" class="w-full py-2 bg-cyan-700 hover:bg-cyan-600 rounded font-bold text-sm transition-all">套用設定</button>
                 </div>
-
-                <button id="applyBtn" class="w-full py-3 bg-cyan-700 hover:bg-cyan-600 rounded-lg transition-all font-bold text-white shadow-lg active:scale-95">
-                    應用設定並同步硬體
-                </button>
-                <p id="syncStatus" class="text-center text-xs text-slate-500 italic">尚未與硬體同步</p>
             </div>
 
-            <!-- Right: Visualization -->
-            <div class="lg:col-span-2 flex flex-col gap-6">
-                <div class="glass-card p-4 rounded-2xl shadow-xl">
-                    <div class="flex justify-between items-center mb-4">
-                        <h2 class="text-xl font-semibold flex items-center gap-2 text-cyan-100">
-                            <i data-lucide="activity"></i> 即時波形
-                        </h2>
-                        <div class="flex gap-2">
-                            <button id="clearBtn" class="text-xs bg-slate-700 px-3 py-1 rounded hover:bg-slate-600 transition-colors">清除圖表</button>
-                            <button id="exportBtn" class="text-xs bg-emerald-700 px-3 py-1 rounded hover:bg-emerald-600 transition-colors">匯出 CSV</button>
-                        </div>
-                    </div>
-                    <div id="canvasParent" class="canvas-container w-full aspect-video bg-black/50 rounded-lg overflow-hidden border border-slate-800"></div>
-                </div>
-
-                <div class="grid grid-cols-2 md:grid-cols-3 gap-4" id="dataCards"></div>
+            <!-- Content: Graph & Cards -->
+            <div class="lg:col-span-3 space-y-6">
+                <div id="canvasParent" class="canvas-container w-full aspect-video bg-black rounded-xl border border-slate-800"></div>
+                <div class="grid grid-cols-3 md:grid-cols-5 gap-3" id="dataCards"></div>
             </div>
         </div>
     </div>
@@ -96,197 +60,110 @@
         const SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
         const TX_UUID = "0000ffe1-0000-1000-8000-00805f9b34fb";
         const RX_UUID = "0000ffe2-0000-1000-8000-00805f9b34fb";
+        const ALL_PINS = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 18, 19, 20, 21];
 
         let bleDevice, txChar, rxChar;
-        let activeMask = 0x01; 
-        let currentRes = 1;
-        let dataHistory = [[], [], [], [], [], []];
-        const MAX_HISTORY = 300;
+        let activeMask = 0x0001; 
+        let dataHistory = Array.from({length: 15}, () => []);
+        const MAX_HISTORY = 150;
 
-        // --- 1. 動態限制與步進邏輯 (連動解析度與頻率) ---
-        function updateFreqLimits() {
-            const res = parseInt(document.getElementById('resSelect').value);
-            const range = document.getElementById('freqRange');
-            const input = document.getElementById('freqInput');
-            
-            let maxFreq = 500;
-            if (res === 0) maxFreq = 1000;
-            if (res === 1) maxFreq = 500;
-            if (res === 2) maxFreq = 100;
+        function unpack(view) {
+            if(view.getUint8(0) !== 0xAA) return null;
+            const mask = (view.getUint8(1) << 8) | view.getUint8(2);
+            const res = view.getUint8(3);
+            const ts = view.getUint32(4, true);
+            const values = []; let pos = 8;
+            let count = 0; for(let i=0; i<15; i++) if((mask >> i) & 1) count++;
 
-            range.max = maxFreq;
-            input.max = maxFreq;
-
-            // 調整步進為 1/20
-            const step = (maxFreq - 10) / 20;
-            range.step = step;
-
-            if (parseInt(input.value) > maxFreq) {
-                input.value = maxFreq;
-                range.value = maxFreq;
-            }
-        }
-
-        // --- 2. 數據解包 ---
-        function unpackData(view) {
-            const header = view.getUint8(0);
-            if (header !== 0xAA) return null;
-
-            const config = view.getUint8(1);
-            const res = (config >> 6) & 0x03;
-            const mask = config & 0x3F;
-            const timestamp = view.getUint32(2, true);
-            
-            const rawValues = [];
-            let pos = 6;
-            let activeCount = 0;
-            for(let i=0; i<6; i++) if((mask >> i) & 1) activeCount++;
-
-            if (res === 0) {
-                for (let i = 0; i < activeCount; i++) rawValues.push(view.getUint8(pos++) << 4);
-            } else if (res === 1) {
-                for (let i = 0; i < activeCount; i += 2) {
-                    const b1 = view.getUint8(pos++);
-                    const b2 = view.getUint8(pos++);
-                    const b3 = view.getUint8(pos++);
-                    rawValues.push((b1 << 4) | (b2 >> 4));
-                    if (rawValues.length < activeCount) rawValues.push(((b2 & 0x0F) << 8) | b3);
+            if(res === 0) {
+                for(let i=0; i<count; i++) values.push(view.getUint8(pos++) << 4);
+            } else if(res === 1) {
+                for(let i=0; i<count; i+=2) {
+                    const b1 = view.getUint8(pos++), b2 = view.getUint8(pos++), b3 = view.getUint8(pos++);
+                    values.push((b1 << 4) | (b2 >> 4));
+                    if(values.length < count) values.push(((b2 & 0x0F) << 8) | b3);
                 }
             } else {
-                for (let i = 0; i < activeCount; i++) {
-                    rawValues.push((view.getUint8(pos++) << 8) | view.getUint8(pos++));
-                }
+                for(let i=0; i<count; i++) values.push((view.getUint8(pos++) << 8) | view.getUint8(pos++));
             }
-            return { timestamp, mask, values: rawValues };
+            return { ts, mask, values };
         }
 
-        // --- 3. BLE 通訊 ---
-        async function connectBLE() {
+        async function connect() {
             try {
-                bleDevice = await navigator.bluetooth.requestDevice({
-                    filters: [{ name: 'OmniSense-Base' }],
-                    optionalServices: [SERVICE_UUID]
-                });
+                bleDevice = await navigator.bluetooth.requestDevice({ filters:[{name:'OmniSense-Base'}], optionalServices:[SERVICE_UUID]});
                 const server = await bleDevice.gatt.connect();
-                const service = await server.getPrimaryService(SERVICE_UUID);
-                txChar = await service.getCharacteristic(TX_UUID);
-                rxChar = await service.getCharacteristic(RX_UUID);
+                txChar = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(TX_UUID);
+                rxChar = await (await server.getPrimaryService(SERVICE_UUID)).getCharacteristic(RX_UUID);
                 await txChar.startNotifications();
                 txChar.addEventListener('characteristicvaluechanged', (e) => {
-                    const res = unpackData(e.target.value);
-                    if (res) updateDataUI(res);
+                    const d = unpack(e.target.value);
+                    if(!d) return;
+                    let vIdx = 0;
+                    for(let i=0; i<15; i++) {
+                        if((d.mask >> i) & 1) {
+                            const val = d.values[vIdx++];
+                            dataHistory[i].push(val);
+                            if(dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
+                            document.getElementById(`val-${i}`).innerText = val;
+                        }
+                    }
                 });
-                document.getElementById('connectBtn').classList.add('hidden');
-                document.getElementById('disconnectBtn').classList.remove('hidden');
-                document.getElementById('syncStatus').innerText = "已連線至硬體";
-            } catch (err) { console.error(err); }
+                document.getElementById('connectBtn').innerText = "已連線";
+            } catch(e) { console.error(e); }
         }
 
-        function updateDataUI(result) {
-            const { timestamp, mask, values } = result;
-            let valIdx = 0;
-            for (let i = 0; i < 6; i++) {
-                if ((mask >> i) & 1) {
-                    const val = values[valIdx++];
-                    dataHistory[i].push({ t: timestamp, v: val });
-                    if (dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
-                    const card = document.getElementById(`card-${i}`);
-                    if (card) card.querySelector('.val-text').innerText = val;
-                }
-            }
+        async function apply() {
+            if(!rxChar) return;
+            const f = parseInt(document.getElementById('freqRange').value);
+            const r = parseInt(document.getElementById('resSelect').value);
+            const buf = new Uint8Array([0x01, (activeMask >> 8) & 0xFF, activeMask & 0xFF, (f >> 8) & 0xFF, f & 0xFF, r]);
+            await rxChar.writeValue(buf);
         }
 
-        async function applyConfig() {
-            if (!rxChar) return;
-            const freq = parseInt(document.getElementById('freqInput').value);
-            const res = parseInt(document.getElementById('resSelect').value);
-            const buffer = new Uint8Array([0x01, activeMask, (freq >> 8) & 0xFF, freq & 0xFF, res]);
-            await rxChar.writeValue(buffer);
-            document.getElementById('syncStatus').innerText = `已同步: ${freq}Hz / ${res === 0 ? '8' : res === 1 ? '12' : '16'}-bit`;
-            document.getElementById('syncStatus').classList.replace('text-slate-500', 'text-cyan-400');
-        }
-
-        // --- 4. p5.js ---
         new p5((p) => {
             p.setup = () => {
-                const parent = document.getElementById('canvasParent');
-                p.createCanvas(parent.offsetWidth, parent.offsetHeight).parent(parent);
+                const par = document.getElementById('canvasParent');
+                p.createCanvas(par.offsetWidth, par.offsetHeight).parent(par);
             };
             p.draw = () => {
-                p.background(15, 23, 42);
-                p.strokeWeight(2);
-                const colors = ['#22d3ee', '#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa'];
-                for (let i = 0; i < 6; i++) {
-                    if (!((activeMask >> i) & 1)) continue;
-                    p.stroke(colors[i]);
-                    p.noFill();
-                    p.beginShape();
-                    dataHistory[i].forEach((pt, idx) => {
-                        p.vertex(p.map(idx, 0, MAX_HISTORY, 0, p.width), p.map(pt.v, 0, 4095, p.height - 30, 30));
+                p.background(10, 10, 20);
+                const colors = ['#22d3ee', '#818cf8', '#fb7185', '#34d399', '#fbbf24', '#a78bfa', '#f472b6', '#4ade80', '#fb923c', '#818cf8', '#2dd4bf', '#a78bfa', '#f87171', '#fbbf24', '#60a5fa'];
+                for(let i=0; i<15; i++) {
+                    if(!((activeMask >> i) & 1)) continue;
+                    p.stroke(colors[i]); p.noFill(); p.beginShape();
+                    dataHistory[i].forEach((v, idx) => {
+                        p.vertex(p.map(idx, 0, MAX_HISTORY, 0, p.width), p.map(v, 0, 4095, p.height-20, 20));
                     });
                     p.endShape();
                 }
             };
-            p.windowResized = () => {
-                const parent = document.getElementById('canvasParent');
-                p.resizeCanvas(parent.offsetWidth, parent.offsetHeight);
-            };
         });
 
-        // --- 5. UI Init & Events ---
-        function initUI() {
+        window.onload = () => {
             const grid = document.getElementById('channelGrid');
             const cards = document.getElementById('dataCards');
-            const colors = ['text-cyan-400', 'text-indigo-400', 'text-rose-400', 'text-emerald-400', 'text-amber-400', 'text-purple-400'];
-            for (let i = 0; i < 6; i++) {
-                const btn = document.createElement('button');
-                btn.id = `ch-${i}`;
-                btn.innerText = `CH ${i}`;
-                btn.className = `p-2 rounded border border-slate-700 text-xs transition-all ${i === 0 ? 'bg-cyan-900 border-cyan-500 text-white shadow-inner shadow-cyan-500/20' : 'text-slate-500'}`;
-                btn.onclick = () => toggleChannel(i);
-                grid.appendChild(btn);
+            ALL_PINS.forEach((p, i) => {
+                const b = document.createElement('button');
+                b.innerText = `G${p}`;
+                b.className = `p-1 rounded border text-[9px] ${i==0?'bg-cyan-900 border-cyan-500':'border-slate-700 text-slate-500'}`;
+                b.onclick = (e) => {
+                    activeMask ^= (1 << i);
+                    const active = (activeMask >> i) & 1;
+                    e.target.className = `p-1 rounded border text-[9px] ${active?'bg-cyan-900 border-cyan-500':'border-slate-700 text-slate-500'}`;
+                    document.getElementById(`card-${i}`).style.opacity = active ? "1" : "0.2";
+                };
+                grid.appendChild(b);
 
-                const card = document.createElement('div');
-                card.id = `card-${i}`;
-                card.className = `glass-card p-4 rounded-xl transition-opacity duration-300 ${i === 0 ? '' : 'opacity-20'}`;
-                card.innerHTML = `<p class="text-[10px] text-slate-500 uppercase tracking-widest">頻道 ${i}</p><p class="text-2xl font-mono font-bold ${colors[i]} val-text">---</p>`;
-                cards.appendChild(card);
-            }
-            updateFreqLimits();
-            lucide.createIcons();
-        }
-
-        function toggleChannel(i) {
-            activeMask ^= (1 << i);
-            const btn = document.getElementById(`ch-${i}`);
-            const card = document.getElementById(`card-${i}`);
-            const isActive = (activeMask >> i) & 1;
-            btn.className = `p-2 rounded border text-xs transition-all ${isActive ? 'bg-cyan-900 border-cyan-500 text-white' : 'border-slate-700 text-slate-500'}`;
-            card.style.opacity = isActive ? "1" : "0.2";
-            document.getElementById('syncStatus').innerText = "腳位變更，請重新應用設定";
-            document.getElementById('syncStatus').className = "text-center text-xs italic text-amber-500";
-        }
-
-        document.getElementById('freqRange').oninput = (e) => {
-            document.getElementById('freqInput').value = Math.round(e.target.value);
+                const c = document.createElement('div');
+                c.id = `card-${i}`; c.className = `glass-card p-2 rounded transition-opacity ${i==0?'':'opacity-20'}`;
+                c.innerHTML = `<p class="text-[8px] text-slate-500">GPIO ${p}</p><p id="val-${i}" class="text-lg font-mono font-bold text-cyan-400">---</p>`;
+                cards.appendChild(c);
+            });
+            document.getElementById('freqRange').oninput = (e) => document.getElementById('freqLabel').innerText = e.target.value;
+            document.getElementById('connectBtn').onclick = connect;
+            document.getElementById('applyBtn').onclick = apply;
         };
-        document.getElementById('freqInput').oninput = (e) => {
-            document.getElementById('freqRange').value = e.target.value;
-        };
-        document.getElementById('resSelect').onchange = updateFreqLimits;
-        document.getElementById('connectBtn').onclick = connectBLE;
-        document.getElementById('applyBtn').onclick = applyConfig;
-        document.getElementById('clearBtn').onclick = () => dataHistory = [[],[],[],[],[],[]];
-        document.getElementById('exportBtn').onclick = () => {
-            let csv = "Time,Channel,Value\n";
-            dataHistory.forEach((ch, idx) => ch.forEach(pt => csv += `${pt.t},${idx},${pt.v}\n`));
-            const a = document.createElement('a');
-            a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
-            a.download = 'OmniSense_Lab_Data.csv';
-            a.click();
-        };
-
-        window.onload = initUI;
     </script>
 </body>
 </html>
