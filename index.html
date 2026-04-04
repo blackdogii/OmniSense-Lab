@@ -1,4 +1,10 @@
 <!DOCTYPE html>
+<!--
+  專案：OmniSense Lab
+  作者：小威老師
+  說明：Web Bluetooth 主控台、p5.js 波形、CSV 匯出、懸空偵測與濾波（對應 ESP32-C3 韌體協定）。
+  授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+-->
 <html lang="zh-TW">
 <head>
     <meta charset="UTF-8">
@@ -25,6 +31,8 @@
         .pin-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
         .pin-btn:active { transform: scale(0.95); }
         input[type=range] { accent-color: #22d3ee; }
+        /* 避免手機上按鈕被手勢或重疊層吃掉點擊 */
+        #toolbarActions button { position: relative; z-index: 40; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen">
@@ -41,10 +49,10 @@
                 </div>
             </div>
             <div class="flex gap-3">
-                <button id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30">
+                <button type="button" id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30">
                     <i data-lucide="bluetooth"></i> 連結裝置
                 </button>
-                <button id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg">
+                <button type="button" id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg">
                     <i data-lucide="unplug"></i> 斷開
                 </button>
             </div>
@@ -114,7 +122,7 @@
                         <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位輸入通道維持原始 0／4095，不套用濾波。</p>
                     </div>
 
-                    <button id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm uppercase transition-all shadow-xl active:scale-95">
+                    <button type="button" id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm uppercase transition-all shadow-xl active:scale-95">
                         應用配置
                     </button>
                     <div id="syncIndicator" class="text-center text-[10px] text-slate-500 italic">
@@ -125,18 +133,18 @@
 
             <!-- 主繪圖區 -->
             <div class="lg:col-span-3 space-y-6">
-                <div class="glass-card p-6 rounded-[2rem] shadow-2xl overflow-hidden relative">
-                    <div class="flex justify-between items-center mb-6">
+                <div class="glass-card p-6 rounded-[2rem] shadow-2xl relative">
+                    <div class="flex justify-between items-center mb-6 relative z-30">
                         <div class="flex items-center gap-3">
                             <i data-lucide="line-chart" class="text-cyan-400"></i>
                             <h2 class="text-xl font-bold">即時感測波形</h2>
                         </div>
-                        <div class="flex gap-2">
-                            <button id="clearBtn" class="text-[9px] font-bold bg-slate-700/50 px-4 py-2 rounded-xl hover:bg-slate-700 transition-colors uppercase">清除</button>
-                            <button id="exportBtn" class="text-[9px] font-bold bg-emerald-600/80 px-4 py-2 rounded-xl hover:bg-emerald-600 transition-colors uppercase">導出 CSV</button>
+                        <div id="toolbarActions" class="flex gap-2">
+                            <button type="button" id="clearBtn" class="text-[9px] font-bold bg-slate-700/50 px-4 py-2 rounded-xl hover:bg-slate-700 transition-colors uppercase min-h-[36px] min-w-[4rem]">清除</button>
+                            <button type="button" id="exportBtn" class="text-[9px] font-bold bg-emerald-600/80 px-4 py-2 rounded-xl hover:bg-emerald-600 transition-colors uppercase min-h-[36px] min-w-[4rem]">導出 CSV</button>
                         </div>
                     </div>
-                    <div id="canvasParent" class="canvas-container w-full aspect-[21/9] bg-slate-950 rounded-2xl border border-slate-800"></div>
+                    <div id="canvasParent" class="canvas-container w-full aspect-[21/9] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden relative z-0"></div>
                 </div>
 
                 <!-- 數據卡片 -->
@@ -177,6 +185,33 @@
         let dataHistory = Array.from({length: 9}, () => []);
         const MAX_HISTORY = 100;
         const MA_WINDOW = 8;
+
+        /** 邏輯通道 id：GPIO 0,1,3,4（類比）懸空時易亂跳 — 以滑動視窗偵測並用中位數抑制 */
+        const FLOATING_ADC_IDS = new Set([0, 1, 3, 4]);
+        const FLOAT_WIN = 16;
+        const FLOAT_SPAN_THRESH = 120;
+        const floatRawBuf = Array.from({ length: 9 }, () => []);
+
+        function resetFloatingBuffers() {
+            for (let i = 0; i < 9; i++) floatRawBuf[i].length = 0;
+        }
+
+        /**
+         * GPIO 0,1,3,4：懸空時 ADC 易亂跳。累積視窗後一律以「中位數」輸出以抑制毛刺；
+         * span 過大時標記 floating 供提示（再交給卡爾曼／MA）。
+         */
+        function stabilizeFloatingAnalog(raw, id) {
+            if (!FLOATING_ADC_IDS.has(id)) return { v: raw, floating: false };
+            const buf = floatRawBuf[id];
+            buf.push(raw);
+            if (buf.length > FLOAT_WIN) buf.shift();
+            if (buf.length < 3) return { v: raw, floating: false };
+            const sorted = [...buf].sort((a, b) => a - b);
+            const med = sorted[Math.floor(sorted.length / 2)];
+            const span = sorted[sorted.length - 1] - sorted[0];
+            const floating = span > FLOAT_SPAN_THRESH;
+            return { v: med, floating };
+        }
 
         /** 單通道 1D 卡爾曼（觀測為 0–4095 類比量） */
         function createKalman1D(processNoise, measNoise) {
@@ -240,39 +275,149 @@
             return { ts, mask, values };
         }
 
+        function clearWaveform(ev) {
+            if (ev) ev.preventDefault();
+            for (let i = 0; i < 9; i++) dataHistory[i].length = 0;
+            resetFloatingBuffers();
+            rebuildChannelFilters();
+            const el = document.getElementById('syncIndicator');
+            if (el) el.innerText = '已清除波形緩衝';
+        }
+
+        function buildCsvText() {
+            const maxLen = dataHistory.reduce((m, h) => Math.max(m, h.length), 0);
+            const gpioHeader = PINS_CONFIG.map((p) => `GPIO${p.gpio}`);
+            const header = ['sample_index', ...gpioHeader];
+            const lines = [header.join(',')];
+            for (let r = 0; r < maxLen; r++) {
+                const row = [r];
+                for (let i = 0; i < 9; i++) {
+                    const h = dataHistory[i];
+                    row.push(h.length > r ? h[r] : '');
+                }
+                lines.push(row.join(','));
+            }
+            return '\ufeff' + lines.join('\n');
+        }
+
+        async function exportCsv(ev) {
+            if (ev) ev.preventDefault();
+            const maxLen = dataHistory.reduce((m, h) => Math.max(m, h.length), 0);
+            if (maxLen === 0) {
+                alert('尚無資料可匯出，請先連線並接收資料。');
+                return;
+            }
+            const csv = buildCsvText();
+            const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+            const baseName = `OmniSense_${new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')}.csv`;
+            const file = new File([blob], baseName, { type: 'text/csv' });
+
+            try {
+                if (window.showSaveFilePicker) {
+                    const handle = await window.showSaveFilePicker({
+                        suggestedName: baseName,
+                        types: [{ description: 'CSV', accept: { 'text/csv': ['.csv'] } }]
+                    });
+                    const writable = await handle.createWritable();
+                    await writable.write(blob);
+                    await writable.close();
+                    document.getElementById('syncIndicator').innerText = '已儲存 CSV（由系統選擇位置）';
+                    return;
+                }
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                console.warn('showSaveFilePicker', e);
+            }
+
+            try {
+                if (navigator.canShare && navigator.canShare({ files: [file] })) {
+                    await navigator.share({ files: [file], title: 'OmniSense Lab CSV', text: '匯出感測資料' });
+                    document.getElementById('syncIndicator').innerText = '已開啟系統分享（可存檔或傳送）';
+                    return;
+                }
+            } catch (e) {
+                if (e && e.name === 'AbortError') return;
+                console.warn('navigator.share', e);
+            }
+
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = baseName;
+            a.rel = 'noopener';
+            document.body.appendChild(a);
+            a.click();
+            requestAnimationFrame(() => {
+                URL.revokeObjectURL(url);
+                a.remove();
+            });
+            document.getElementById('syncIndicator').innerText = '已觸發下載（若手機無另存新檔，請用分享鈕）';
+        }
+
+        async function disconnectBle() {
+            try {
+                if (bleDevice && bleDevice.gatt.connected) await bleDevice.gatt.disconnect();
+            } catch (e) { console.log(e); }
+            txChar = rxChar = null;
+            bleDevice = null;
+            document.getElementById('connectBtn').classList.remove('hidden');
+            document.getElementById('disconnectBtn').classList.add('hidden');
+            document.getElementById('syncIndicator').innerText = '已斷開藍牙';
+        }
+
         // --- 4. BLE 操作 ---
         async function connect() {
             try {
                 rebuildChannelFilters();
+                resetFloatingBuffers();
+                // iPhone：須能依「服務 UUID」掃到裝置，韌體須把 FFE0 放進廣播／Scan Response
+                // 修改為只根據 UUID 篩選，徹底解除藍牙名稱的綁定
                 bleDevice = await navigator.bluetooth.requestDevice({
-                    filters:[{name:'OmniSense-Base'}],
-                    optionalServices:[SERVICE_UUID]
+                    filters: [
+                        { services: [SERVICE_UUID] }
+                    ]
                 });
                 const server = await bleDevice.gatt.connect();
                 const service = await server.getPrimaryService(SERVICE_UUID);
                 txChar = await service.getCharacteristic(TX_UUID);
                 rxChar = await service.getCharacteristic(RX_UUID);
-                
+
+                bleDevice.addEventListener('gattserverdisconnected', () => {
+                    disconnectBle();
+                });
+
                 await txChar.startNotifications();
                 txChar.addEventListener('characteristicvaluechanged', (e) => {
                     const d = unpack(e.target.value);
-                    if(!d) return;
+                    if (!d) return;
                     let vIdx = 0;
-                    for(let i=0; i<9; i++) {
-                        if((d.mask >> i) & 1) {
+                    for (let i = 0; i < 9; i++) {
+                        if ((d.mask >> i) & 1) {
                             const raw = d.values[vIdx++];
-                            const val = channelFilters[i] ? channelFilters[i](raw) : raw;
+                            const { v: pre, floating } = stabilizeFloatingAnalog(raw, i);
+                            const val = channelFilters[i] ? channelFilters[i](pre) : pre;
                             dataHistory[i].push(val);
-                            if(dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
+                            if (dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
                             const el = document.getElementById(`val-${i}`);
-                            if(el) el.innerText = val;
+                            if (el) el.innerText = val;
+                            const hint = document.getElementById(`float-hint-${i}`);
+                            if (hint) {
+                                if (FLOATING_ADC_IDS.has(i) && floating) {
+                                    hint.classList.remove('hidden');
+                                    hint.innerText = '可能懸空（已抑制雜訊）';
+                                } else {
+                                    hint.classList.add('hidden');
+                                }
+                            }
                         }
                     }
                 });
                 document.getElementById('connectBtn').classList.add('hidden');
                 document.getElementById('disconnectBtn').classList.remove('hidden');
-                document.getElementById('syncIndicator').innerText = "✅ 裝置已就緒";
-            } catch(e) { console.log(e); }
+                document.getElementById('syncIndicator').innerText = '✅ 裝置已就緒';
+            } catch (e) {
+                console.log(e);
+            }
         }
 
         async function apply() {
@@ -305,8 +450,8 @@
             };
         });
 
-        // --- 6. UI 初始化 ---
-        window.onload = () => {
+        // --- 6. UI 初始化（DOMContentLoaded：避免腳本早於節點執行導致按鈕無效）---
+        function initUi() {
             PINS_CONFIG.forEach((p) => {
                 const group = document.getElementById(`group-${p.type}`);
                 const btn = document.createElement('button');
@@ -320,7 +465,7 @@
                 const c = document.createElement('div');
                 c.id = `card-${p.id}`;
                 c.className = `glass-card p-4 rounded-2xl transition-all ${p.id === 0 ? '' : 'opacity-20'}`;
-                c.innerHTML = `<p class="text-[9px] font-black text-slate-500 uppercase">GPIO ${p.gpio}</p><p id="val-${p.id}" class="text-2xl font-mono font-bold text-slate-100">---</p>`;
+                c.innerHTML = `<p class="text-[9px] font-black text-slate-500 uppercase">GPIO ${p.gpio}</p><p id="val-${p.id}" class="text-2xl font-mono font-bold text-slate-100">---</p><p id="float-hint-${p.id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
                 cards.appendChild(c);
             });
             lucide.createIcons();
@@ -329,10 +474,26 @@
                 rebuildChannelFilters();
                 document.getElementById('syncIndicator').innerText = '已切換濾波（緩衝重算於下筆資料）';
             };
-            document.getElementById('connectBtn').onclick = connect;
-            document.getElementById('applyBtn').onclick = apply;
-            document.getElementById('freqRange').oninput = (e) => document.getElementById('freqLabel').innerText = e.target.value;
-        };
+            const bind = (id, fn) => {
+                const n = document.getElementById(id);
+                if (!n) return;
+                n.addEventListener('click', fn, { passive: false });
+            };
+            bind('connectBtn', connect);
+            bind('disconnectBtn', disconnectBle);
+            bind('applyBtn', apply);
+            bind('clearBtn', clearWaveform);
+            bind('exportBtn', exportCsv);
+            document.getElementById('freqRange').addEventListener('input', (e) => {
+                document.getElementById('freqLabel').innerText = e.target.value;
+            });
+        }
+
+        if (document.readyState === 'loading') {
+            document.addEventListener('DOMContentLoaded', initUi);
+        } else {
+            initUi();
+        }
 
         function toggle(id) {
             activeMask ^= (1 << id);

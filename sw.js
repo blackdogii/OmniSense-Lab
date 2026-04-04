@@ -1,20 +1,22 @@
-const CACHE_NAME = 'omnisense-lab-v1';
-const ASSETS_TO_CACHE = [
-  './',
-  './index.html',
-  './manifest.json',
-  'https://cdn.tailwindcss.com',
-  'https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.0/p5.js',
-  'https://unpkg.com/lucide@latest'
-];
+/**
+ * 專案：OmniSense Lab
+ * 作者：小威老師
+ * 說明：PWA Service Worker，快取離線資源。
+ * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ */
+const CACHE_NAME = 'omnisense-lab-v5';
+const ASSETS_TO_CACHE = ['./index.html', './manifest.json', './sw.js'];
 
-// 安裝階段：快取靜態資源
+// 安裝階段：只快取本機檔案（CDN 常因 CORS 無法 cache.addAll，導致整體安裝失敗）
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('OmniSense SW: 正在快取靜態資源');
-      return cache.addAll(ASSETS_TO_CACHE);
-    })
+      console.log('OmniSense SW: 正在快取本機資源');
+      return cache.addAll(ASSETS_TO_CACHE).catch((err) => {
+        console.warn('OmniSense SW: addAll 部分失敗', err);
+        return cache.add('./index.html').catch(() => {});
+      });
+    }).then(() => self.skipWaiting())
   );
 });
 
@@ -30,15 +32,33 @@ self.addEventListener('activate', (event) => {
           }
         })
       );
-    })
+    }).then(() => self.clients.claim())
   );
 });
 
-// 攔截請求：優先從網路獲取，失敗後使用快取 (適用於科學儀器頻繁更新的特性)
+// 攔截請求：HTML 優先網路更新（避免舊版 index 導致按鈕腳本失效）；其餘先網路後快取
 self.addEventListener('fetch', (event) => {
+  const url = event.request.url;
+  const isHtml =
+    event.request.mode === 'navigate' ||
+    /\/index\.html(\?|$)/.test(url) ||
+    url.endsWith('/') ||
+    (event.request.headers.get('accept') || '').includes('text/html');
+
+  if (isHtml) {
+    event.respondWith(
+      fetch(event.request)
+        .then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+          return res;
+        })
+        .catch(() => caches.match('./index.html') || caches.match('/index.html'))
+    );
+    return;
+  }
+
   event.respondWith(
-    fetch(event.request).catch(() => {
-      return caches.match(event.request);
-    })
+    fetch(event.request).catch(() => caches.match(event.request))
   );
 });
