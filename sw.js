@@ -4,8 +4,14 @@
  * 說明：PWA Service Worker，快取離線資源。
  * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
  */
-const CACHE_NAME = 'omnisense-lab-v5';
-const ASSETS_TO_CACHE = ['./index.html', './manifest.json', './sw.js'];
+const CACHE_NAME = 'omnisense-lab-v6';
+const ASSETS_TO_CACHE = [
+  './index.html',
+  './manifest.json',
+  './sw.js',
+  './assets/icons/icon-192x192.png',
+  './assets/icons/icon-512x512.png'
+];
 
 // 安裝階段：只快取本機檔案（CDN 常因 CORS 無法 cache.addAll，導致整體安裝失敗）
 self.addEventListener('install', (event) => {

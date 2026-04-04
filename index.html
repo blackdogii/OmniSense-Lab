@@ -11,9 +11,12 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>OmniSense Lab - 專業科學主控台</title>
     
-    <!-- PWA 關聯代碼 -->
+    <!-- PWA：可安裝、Chrome 網址列安裝圖示需有效 manifest + SW + 192/512 圖示 -->
     <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png">
     <meta name="theme-color" content="#0f172a">
+    <meta name="application-name" content="OmniSense Lab">
+    <meta name="mobile-web-app-capable" content="yes">
     <!-- iOS 專用全螢幕設定 -->
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -33,6 +36,7 @@
         input[type=range] { accent-color: #22d3ee; }
         /* 避免手機上按鈕被手勢或重疊層吃掉點擊 */
         #toolbarActions button { position: relative; z-index: 40; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+        #pwaInstallBanner { padding-bottom: env(safe-area-inset-bottom, 0px); }
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen">
@@ -153,15 +157,73 @@
         </div>
     </div>
 
+    <!-- PWA：Chrome 可安裝時由 beforeinstallprompt 顯示（與網址列安裝圖示同源條件） -->
+    <div id="pwaInstallBanner" class="fixed bottom-0 left-0 right-0 z-[100] hidden print:hidden" role="region" aria-label="安裝應用程式">
+        <div class="mx-auto max-w-7xl px-3 sm:px-4">
+            <div id="pwaInstallBannerInner" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-t-2xl bg-blue-600 text-white px-4 py-3 shadow-[0_-4px_24px_rgba(37,99,235,0.45)] border border-blue-500/30">
+                <p class="text-sm leading-snug pr-1">
+                    將 <strong>OmniSense Lab</strong> 新增至主螢幕，之後可像 App 一樣快速開啟實驗主控台。
+                </p>
+                <div class="flex gap-2 shrink-0 justify-end">
+                    <button type="button" id="pwaInstallDismiss" class="px-4 py-2 rounded-xl text-sm font-bold bg-white/15 hover:bg-white/25 transition-colors">稍後</button>
+                    <button type="button" id="pwaInstallBtn" class="px-5 py-2 rounded-xl text-sm font-black bg-white text-blue-700 hover:bg-blue-50 transition-colors shadow-md">安裝</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
-        // --- 1. PWA Service Worker 註冊 ---
+        // --- 1. PWA Service Worker（scope 與 manifest 一致，利於「可安裝」判定）---
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
-                    .then(reg => console.log('PWA 就緒'))
-                    .catch(err => console.log('PWA 失敗'));
+                navigator.serviceWorker
+                    .register('./sw.js', { scope: './' })
+                    .then((reg) => console.log('PWA Service Worker 已註冊', reg.scope))
+                    .catch((err) => console.log('PWA Service Worker 註冊失敗', err));
             });
         }
+
+        const PWA_DISMISS_KEY = 'omnisense_pwa_install_dismissed_v1';
+        let deferredInstallPrompt = null;
+
+        function isStandalonePwa() {
+            return (
+                window.matchMedia('(display-mode: standalone)').matches ||
+                window.matchMedia('(display-mode: minimal-ui)').matches ||
+                (window.navigator.standalone === true)
+            );
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            if (isStandalonePwa()) return;
+            if (localStorage.getItem(PWA_DISMISS_KEY)) return;
+            const bar = document.getElementById('pwaInstallBanner');
+            if (bar) bar.classList.remove('hidden');
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+        });
+
+        function wirePwaInstallUi() {
+            document.getElementById('pwaInstallBtn')?.addEventListener('click', async () => {
+                if (!deferredInstallPrompt) return;
+                deferredInstallPrompt.prompt();
+                try {
+                    await deferredInstallPrompt.userChoice;
+                } catch (_) {}
+                deferredInstallPrompt = null;
+                document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+            });
+            document.getElementById('pwaInstallDismiss')?.addEventListener('click', () => {
+                localStorage.setItem(PWA_DISMISS_KEY, '1');
+                document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+            });
+        }
+        wirePwaInstallUi();
 
         // --- 2. 核心變數 ---
         const SERVICE_UUID = "0000ffe0-0000-1000-8000-00805f9b34fb";
