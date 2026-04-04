@@ -1,7 +1,7 @@
 {
   "short_name": "OmniSense",
   "name": "OmniSense Lab - 全感官實驗室",
-  "description": "無線感測主控台，支援多種物理實驗數據視覺化與遊戲互動。",
+  "description": "無線感測主控台（作者：小威老師）。對應 ESP32-C3 底座與 Web Bluetooth。授權見儲存庫 LICENSE。",
   "icons": [
     {
       "src": "assets/icons/icon-192x192.png",

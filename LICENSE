@@ -1,0 +1,75 @@
+# 專案：OmniSense Lab
+# 作者：小威老師（與下方 Copyright 持有人並列時，以條款內文為準）
+# 說明：授權條款全文
+
+OmniSense Lab License
+學術與非商業免費使用條款（Academic & Non-Commercial）
+
+Copyright (c) 2026 OmniSense Lab contributors
+著作權人（Copyright Holder）得於不影響本條款效力之範圍內，於儲存庫或官方管道更新姓名／單位。
+
+---
+
+一、目的
+
+本條款旨在讓教育現場與學術社群能免費使用本專案，同時保留商業利用須另行約定之空間。
+
+---
+
+二、免費授予之範圍（無須付費、無須另行商業授權）
+
+在遵守本條款與保留著作權聲明之前提下，任何人均得就本儲存庫之**原始碼、韌體、網頁資源及相關文件**（以下合稱「本軟體」），於下列情形為**免費、非專屬、不可再授權**之使用：
+
+1. **各級學校、非營利教育機構**之教學、研習、示範與校內實驗。
+2. **學術研究**：大專院校、研究單位或個人之非營利學術研究與發表（含須引用或重製部分內容者）。
+3. **個人非營利學習**：自學、課程作業、非營利之科展或社團活動。
+
+上開情形包括：使用、重製、修改、編譯、於教室或實驗室內部署、向學生展示，以及為上述目的之合理散布（例如校內分享或學術社群之開源釋出衍生作品時仍須標示來源並符合本條款）。
+
+---
+
+三、商業利用須另行授權
+
+下列任一情形，**不在**第二條免費授予範圍內，須事先取得著作權人以**書面或電子郵件明確同意**之**商業授權**（得另議授權金與條件）：
+
+1. 以營利為目的銷售、出租、代工或提供服務，且該產品或服務**實質整合或依賴**本軟體（含修改版或衍生作品作為其核心功能之一）。
+2. 將本軟體或其主要部分用於**企業內部訓練、對外收費課程、產品內建韌體大量出貨**等，且該利用之主要目的為營利或商業推廣。
+3. 其他著作權人合理認定屬**商業利用**且未經書面同意者。
+
+是否屬商業利用如有疑義，請先向著作權人洽詢。**未經商業授權之商業利用，著作權人保留主張法律權利之可能。**
+
+---
+
+四、聲明與責任限制
+
+本軟體依「現狀」提供，**不附帶任何明示或默示之擔保**，包括但不限於適銷性、特定目的適用性、不侵權等。因使用本軟體所生之任何直接、間接、衍生損害，著作權人於法律允許之最大範圍內不負賠償責任。
+
+---
+
+五、第三方元件
+
+本軟體若包含第三方函式庫或資源，該等元件仍受其各自授權條款拘束；若與本條款牴觸，於該第三方元件範圍內以第三方條款為準。
+
+---
+
+六、條款變更
+
+著作權人得公告新版本條款；就您於變更前已取得之本軟體副本，若您持續使用，視為同意依最新條款或選擇停止使用。
+
+---
+
+聯絡與商業授權洽詢：請透過本儲存庫之 **GitHub Issues** 或專案維護者公告之聯絡方式。
+
+---
+
+English summary (non-binding convenience translation)
+
+Copyright (c) 2026 OmniSense Lab contributors.
+
+You may use, copy, modify, and share this software **free of charge** for **non-commercial educational, academic, and personal learning** purposes, subject to this notice.
+
+**Commercial use** (including integrating this software into products or services offered for profit, or other uses deemed commercial by the copyright holders) **requires a separate written commercial license**. Contact the maintainers via **GitHub Issues** or the contact method published by the project.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND.
+
+Third-party components remain under their respective licenses.

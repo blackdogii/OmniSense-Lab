@@ -1,4 +1,13 @@
+/*
+ * 專案：OmniSense Lab
+ * 作者：小威老師
+ * 說明：CommandHandler 實作。
+ * 硬體：ESP32-C3
+ * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ */
 #include "CommandHandler.h"
+#include "Config.h"
+#include "SensorEngine.h"
 
 void CommandHandler::processCommand(const uint8_t* data, size_t len) {
     if (len < 1) return;
