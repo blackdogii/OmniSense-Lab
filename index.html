@@ -104,6 +104,16 @@
                         </select>
                     </div>
 
+                    <div>
+                        <label class="text-xs font-bold text-slate-400 mb-3 block text-center">波形濾波（類比／Hybrid 通道）</label>
+                        <select id="filterSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none">
+                            <option value="none">無</option>
+                            <option value="ma">移動平均（窗長 8）</option>
+                            <option value="kalman" selected>卡爾曼（1D，預設 Q/R）</option>
+                        </select>
+                        <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位輸入通道維持原始 0／4095，不套用濾波。</p>
+                    </div>
+
                     <button id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm uppercase transition-all shadow-xl active:scale-95">
                         應用配置
                     </button>
@@ -163,11 +173,51 @@
         ];
 
         let bleDevice, txChar, rxChar;
-        let activeMask = 0x0001; 
+        let activeMask = 0x0001;
         let dataHistory = Array.from({length: 9}, () => []);
         const MAX_HISTORY = 100;
+        const MA_WINDOW = 8;
 
-        // --- 3. 藍牙數據解析 (BitUnpacker) ---
+        /** 單通道 1D 卡爾曼（觀測為 0–4095 類比量） */
+        function createKalman1D(processNoise, measNoise) {
+            let x = null;
+            let P = 1;
+            const Q = processNoise;
+            const R = measNoise;
+            return function (z) {
+                if (x === null) x = z;
+                P = P + Q;
+                const K = P / (P + R);
+                x = x + K * (z - x);
+                P = (1 - K) * P;
+                return Math.round(x);
+            };
+        }
+
+        function createMovingAverage(windowSize) {
+            const buf = [];
+            return function (z) {
+                buf.push(z);
+                if (buf.length > windowSize) buf.shift();
+                let s = 0;
+                for (let i = 0; i < buf.length; i++) s += buf[i];
+                return Math.round(s / buf.length);
+            };
+        }
+
+        let channelFilters = [];
+
+        function rebuildChannelFilters() {
+            const mode = document.getElementById('filterSelect')?.value || 'kalman';
+            channelFilters = PINS_CONFIG.map((p) => {
+                if (p.type === 'digital') return (z) => z;
+                if (mode === 'none') return (z) => z;
+                if (mode === 'ma') return createMovingAverage(MA_WINDOW);
+                return createKalman1D(4, 64);
+            });
+        }
+
+        // --- 3. 藍牙數據解析 (BitUnpacker)，與韌體 BitPacker 對齊 ---
         function unpack(view) {
             if(view.getUint8(0) !== 0xAA) return null;
             const mask = (view.getUint8(1) << 8) | view.getUint8(2);
@@ -193,6 +243,7 @@
         // --- 4. BLE 操作 ---
         async function connect() {
             try {
+                rebuildChannelFilters();
                 bleDevice = await navigator.bluetooth.requestDevice({
                     filters:[{name:'OmniSense-Base'}],
                     optionalServices:[SERVICE_UUID]
@@ -209,7 +260,8 @@
                     let vIdx = 0;
                     for(let i=0; i<9; i++) {
                         if((d.mask >> i) & 1) {
-                            const val = d.values[vIdx++];
+                            const raw = d.values[vIdx++];
+                            const val = channelFilters[i] ? channelFilters[i](raw) : raw;
                             dataHistory[i].push(val);
                             if(dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
                             const el = document.getElementById(`val-${i}`);
@@ -272,6 +324,11 @@
                 cards.appendChild(c);
             });
             lucide.createIcons();
+            rebuildChannelFilters();
+            document.getElementById('filterSelect').onchange = () => {
+                rebuildChannelFilters();
+                document.getElementById('syncIndicator').innerText = '已切換濾波（緩衝重算於下筆資料）';
+            };
             document.getElementById('connectBtn').onclick = connect;
             document.getElementById('applyBtn').onclick = apply;
             document.getElementById('freqRange').oninput = (e) => document.getElementById('freqLabel').innerText = e.target.value;
@@ -286,7 +343,7 @@
             
             document.getElementById(`btn-${id}`).className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${active ? colorClass : 'border-slate-700 text-slate-500'}`;
             document.getElementById(`card-${id}`).style.opacity = active ? "1" : "0.2";
-            document.getElementById('syncIndicator').innerText = "⚠️ 腳位已變動";document.getElementById('syncIndicator').innerText = "⚠️ 腳位已變動";
+            document.getElementById('syncIndicator').innerText = '⚠️ 腳位已變動，請按「應用配置」同步';
         }
     </script>
 </body>

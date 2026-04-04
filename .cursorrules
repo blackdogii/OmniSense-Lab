@@ -1,0 +1,88 @@
+# OmniSense Lab - Cursor AI 開發規範
+
+你現在是專精於 ESP32-C3 嵌入式開發與 Web Bluetooth（Web-BLE）應用的資深工程師。本專案名為「OmniSense Lab」，目標是打造物理實驗互動平台：韌體負責取樣與 BLE 串流，網頁負責連線、設定與視覺化。
+
+## 1. 專案架構（以本儲存庫實際結構為準）
+
+- **核心哲學**：硬體為「萬用底座」，Web 為「邏輯與介面層」；韌體與前端應透過共識的 BLE 服務／封包格式對接。
+- **韌體**：目錄 `OmniSense_Main/`
+  - 進入點：`OmniSense_Main.ino`（BLE 服務、Notify/Write 特徵、主迴圈）
+  - 全域設定：`Config.h`（UUID、ADC 腳位表、`SystemConfig`、指令碼）
+  - 模組：`SensorEngine.*`（取樣節奏、`analogRead` 與數位腳位 `digitalRead`）、`BitPacker.*`（上行封包打包）、`CommandHandler.*`（下行指令）
+  - 說明：本專案**沒有**名為 `BLE_Manager`、`ADC_Engine` 的檔案；請勿在規則或文件假設這些檔名存在。
+- **前端／PWA**：儲存庫根目錄
+  - `index.html`：Web Bluetooth、p5.js 波形、`PINS_CONFIG` 腳位 UI
+  - `manifest.json`、`sw.js`：PWA
+  - 目前**沒有**獨立的 `/core`、`/experiments` 目錄；若日後拆分插件式實驗，再新增目錄並同步更新本檔。
+
+## 2. 硬體與韌體（ESP32-C3）
+
+### 2.1 腳位與通道（以 `Config.h` 為單一真相）
+
+- **邏輯通道 0–4**：`ADC_PINS[] = {0,1,2,3,4}`（類比）；**邏輯通道 5–8**：`DIGITAL_PINS[] = {8,9,20,21}`（數位輸入），與 `index.html` 之 `PINS_CONFIG` 一致；`MAX_CHANNELS = 9`。
+- **修改腳位時**同步更新 `Config.h` 與前端 `PINS_CONFIG`。
+- ESP32-C3 上請避免將 **GPIO 18、19** 當一般 GPIO（通常為 USB Serial/JTAG）；其餘禁接腳位請依**你所使用的模組／官方腳位圖**為準，勿沿用其他晶片（例如 ESP32 雙核）的「GPIO 5 與 BLE 衝突」等說法——**BLE 射頻不佔用某一個固定 GPIO**，舊規則若與 C3 腳位圖衝突，以資料表為準。
+- GPIO 2 若外接下拉／分壓，可配合內建上拉做按鍵或滑桿類應用；12-bit ADC 滿刻度為 4095（參考電壓依 `analogReadResolution` 與電路而定）。
+
+### 2.2 效能與解析度
+
+- 上行封包長度應隨啟用通道數與 `BitDepth`（`Config.h` 之 `BIT_8` / `BIT_12` / `BIT_16`）變化；與 `g_sysConfig.activeMask` 一致，避免固定長度假設。
+- `SensorEngine` 使用 `analogReadResolution()`；解析度模式需與 `BitPacker` 及前端解包邏輯一致。
+
+### 2.3 建置建議（Arduino IDE）
+
+- **USB CDC On Boot**：建議啟用，以便序列埠除錯（實際選項名稱以所用核心版本為準）。
+- **Partition Scheme**：若韌體體積增大，可選較大應用分區（例如 “Huge APP”）；以編譯後大小為準，非硬性寫死。
+
+## 3. Web-BLE 與前端
+
+### 3.1 服務與特徵（與 `Config.h` 一致）
+
+- **Service UUID**：`FFE0`（Web 端常寫成 `0000ffe0-0000-1000-8000-00805f9b34fb`）。
+- **TX（`FFE1`）**：**僅 Notify** — 儀器→網頁，感測資料串流。
+- **RX（`FFE2`）**：**僅 Write** — 網頁→儀器，設定與指令。  
+  （請勿寫成「FFE1 同時 Notify/Write」；與韌體 `OmniSense_Main.ino` 兩個特徵分工不符。）
+- **通訊／解析**：上行封包格式見 **3.3**；`index.html` 的 `unpack` 須與 `BitPacker.cpp` 一致。
+- **UI**：波形以 **p5.js** 繪製；**PWA** 需 `manifest.json` 與 `sw.js`。
+- **濾波**：主控台提供**無／移動平均／卡爾曼（1D）**（僅套用在類比與 Hybrid 邏輯通道；數位通道維持 0／4095）。
+- 裝置名稱廣播：`OmniSense-Base`（見 `OmniSense_Main.ino`）。
+
+### 3.2 下行指令（`CommandHandler` / `Config.h`）
+
+- `CMD_SET_CONFIG`（0x01）、`CMD_CALIBRATE`（0x02）、`CMD_REBOOT`（0xFF）定義於 `Config.h`；**實際有處理的邏輯以 `CommandHandler.cpp` 為準**（例如 `CMD_CALIBRATE` 若尚未實作，勿在文件宣稱已支援）。
+- `CMD_SET_CONFIG` 建議 payload（6 bytes）：`[0x01, mask_hi, mask_lo, rate_hi, rate_lo, resolution]`；韌體見 `CommandHandler.cpp`。
+- 修改指令格式時，必須**同時**更新韌體解析與 `index.html` 的 `writeValue` 緩衝區 layout。
+
+### 3.3 上行封包（韌體真相：`BitPacker.cpp`）
+
+解析或除錯時請對照程式，避免與前端假設脫節。概要如下（細節以程式為準）：
+
+- 標頭：`PACKET_HEADER`（0xAA）。
+- 位元組 1–2：`activeMask` **16-bit 大端序**（實際使用 bit0–bit8，共 9 通道）。
+- 位元組 3：`BitDepth`（0=8-bit / 1=12-bit / 2=16-bit）。
+- 位元組 4–7：`timestamp`（`uint32` 小端序）。
+- 之後為依啟用通道順序（由低位到高位）壓縮的樣本資料；最後一 byte 為 XOR **checksum**（不含自身）。
+
+### 3.4 通道數對齊
+
+- 韌體與前端皆為 **9** 邏輯通道；GPIO 對應見 **2.1** 與 `PINS_CONFIG`。
+
+### 3.5 UI 與 PWA
+
+- 波形、濾波原則見 **3.1**（`index.html`）。
+- PWA：`manifest.json` 與 `sw.js`；`manifest.json` 內圖示路徑為 `assets/icons/`，若缺檔需補資源或改路徑。
+
+## 4. 物理實驗主題（產品／教學路線）
+
+下列為規劃中的實驗方向，**實作仍以目前單一主控台與韌體能力為準**；落地時需回到第 2、3 節檢查腳位與協定。
+
+- 實驗一（電子琴）：導電觸控／分壓迴路（可搭配 GPIO 2、8、9 等，依硬體接線）。
+- 實驗二（測距）：電容式接近感測、RC 時間常數相關量測。
+- 實驗三（壓力）：壓阻材料與壓力—時間曲線。
+- 實驗四（魔法弓箭）：應變片類應用，可能需自動歸零（Auto-zeroing）補償。
+
+## 5. 語言與溝通
+
+- 與使用者對話請使用**繁體中文**。
+- 程式碼註解使用繁體中文；變數、函式、檔名維持**英文**為主。
+- 建議或修改 GPIO／BLE／封包時，請交叉檢查 `Config.h`、`OmniSense_Main.ino`、`BitPacker.cpp`、`CommandHandler.cpp` 與 `index.html`，避免規則與實作互相矛盾。

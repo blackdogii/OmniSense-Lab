@@ -13,7 +13,7 @@
  */
 
 // 初始化全域系統配置
-SystemConfig g_sysConfig = {0x01, 100, BIT_12, true}; // 預設：通道 0, 100Hz, 12位元解析度
+SystemConfig g_sysConfig = {0x0001, 100, BIT_12, true}; // 預設：邏輯通道 0, 100Hz, 12 位元
 
 BLECharacteristic *pTxChar;
 bool isConnected = false;
