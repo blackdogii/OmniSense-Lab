@@ -53,6 +53,22 @@
         "res": 1,
         "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
       }
+    },
+    {
+      "id": "omni-forge-bowsmith",
+      "label": "Omni-Forge 弓匠試煉",
+      "shortLabel": "鍛造",
+      "icon": "flame",
+      "subtitle": "The Bowsmith Trial",
+      "description": "Void／Titan／Return 三階 ×5 次；截尾均分、魔法能量計、粒子與鑑定書。",
+      "hardwarePreset": {
+        "message": "弓匠試煉需 G0 觸控 + G2 ADC（10k 上拉）。是否同步？",
+        "activeMask": 5,
+        "pullupMask": 4,
+        "freq": 100,
+        "res": 1,
+        "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+      }
     }
   ]
 }

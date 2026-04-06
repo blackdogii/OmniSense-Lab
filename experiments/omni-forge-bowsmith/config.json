@@ -1,0 +1,10 @@
+{
+  "hardwarePreset": {
+    "message": "Omni-Forge：同步 G0+G2 以進行弓匠試煉？",
+    "activeMask": 5,
+    "pullupMask": 4,
+    "freq": 100,
+    "res": 1,
+    "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+  }
+}
