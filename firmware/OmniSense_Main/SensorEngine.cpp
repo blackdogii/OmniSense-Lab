@@ -9,7 +9,8 @@
 #include "esp_timer.h"
 #include <algorithm>
 #include <cstring>
-#include "esp_cpu.h" // 必須引入此標頭檔以使用 CPU 計時器
+#include "esp_cpu.h"      // 為了使用 esp_cpu_get_cycle_count()
+#include "soc/gpio_struct.h" // 使用直接暫存器結構
 
 esp_timer_handle_t SensorEngine::s_timer = nullptr;
 
@@ -52,50 +53,48 @@ static uint16_t touchRiseTimeTo4095(uint32_t dtUs) {
 }
 
 uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
+    // 1. 初始化環境 (只需執行一次，但在這確保狀態正確)
     pinMode(gpioPin, OUTPUT);
     digitalWrite(gpioPin, LOW);
-    delayMicroseconds(TOUCH_DISCHARGE_US); // 徹底放電 
+    delayMicroseconds(10); 
 
-    // --- 關鍵修正：進入臨界區防止中斷干擾 ---
+    uint32_t dt = 0;
+
+    // 2. 核心量測：使用關鍵臨界區保護
     portENTER_CRITICAL(&s_mux);
     
-    // 啟動計時 (使用 160MHz 的 CPU 週期)
+    // 將腳位切換為輸入模式（不帶上拉）
+    pinMode(gpioPin, INPUT); 
+    
+    // 取得起始週期
     uint32_t start = esp_cpu_get_cycle_count();
     
-    pinMode(gpioPin, INPUT_PULLUP); // 開始充電 
-
-    // 極速輪詢暫存器 (避開 digitalRead 的延遲)
-    // GPIO_IN_REG 解析度遠高於 micros()
-    while (((REG_READ(GPIO_IN_REG) >> gpioPin) & 1) == 0) {
-        if (esp_cpu_get_cycle_count() - start > 80000) break; // 0.5ms 超時保護
-    }
+    // *** 關鍵：使用底層 API 立即啟動上拉，避開 pinMode 的延遲 ***
+    gpio_pullup_en((gpio_num_t)gpioPin);
     
-    uint32_t dt = esp_cpu_get_cycle_count() - start;
+    // 3. 極速輪詢：直接讀取 GPIO 暫存器
+    // 160MHz 下，這個迴圈每秒可跑千萬次，足以捕捉 ns 級變化
+    while (!(GPIO.in.val & (1ULL << gpioPin))) {
+        if (esp_cpu_get_cycle_count() - start > 5000) { // 縮短超時上限提升靈敏度
+            break;
+        }
+    }
+    dt = esp_cpu_get_cycle_count() - start;
+    
+    // 關閉上拉以利下次放電
+    gpio_pullup_dis((gpio_num_t)gpioPin);
+    
     portEXIT_CRITICAL(&s_mux);
 
-    pinMode(gpioPin, INPUT); // 恢復輸入模式 
-
-    // 將 CPU 週期映射到 0-4095
-    // 沒摸時 dt 小 (數值接近 4095)；摸了之後 dt 變大 (數值往下降)
-    const uint32_t max_cycles = 5000; // 根據實際波形微調此閾值
-    if (dt > max_cycles) dt = max_cycles;
-    return static_cast<uint16_t>(4095 - (dt * 4095 / max_cycles));
-}
+    // 4. 數據轉換與解析度擴張
+    // 因為底層速度變快，dt 的數值會變得很小（例如 50~200）
+    // 我們將映射範圍調小，讓微小的電容變化被放大
+    const uint32_t SENSITIVITY_RANGE = 800; // 如果沒反應，試著調小這個數字 (如 400)
     
-    uint32_t dt_cycles = esp_cpu_get_cycle_count() - start_cycles;
-    pinMode(gpioPin, INPUT);
+    if (dt > SENSITIVITY_RANGE) dt = SENSITIVITY_RANGE;
     
-    // 由於我們改用 cycle 計數，數值會比 micros 大很多，需要重新定義轉換比例
-    // 假設未觸碰約 500 cycles，觸碰後可能達 2000 cycles
-    // 你可以根據 OmniSense 儀表板觀測到的實際 raw data 來微調這個映射常數
-    const uint32_t capCycles = 10000u; // 設定一個合理的上限值
-    if (dt_cycles > capCycles) dt_cycles = capCycles;
-    
-    uint32_t sub = (dt_cycles * 4095u) / capCycles;
-    if (sub > 4095u) sub = 4095u;
-    
-    // 讓數值行為與 ADC 邏輯一致：觸碰時 dt 變大，回傳值變小
-    return static_cast<uint16_t>(4095u - sub);
+    // 輸出：未觸摸接近 4095，觸摸時 dt 變大，數值往下掉
+    return (uint16_t)(4095 - (dt * 4095 / SENSITIVITY_RANGE));
 }
 
 void SensorEngine::resetTouchMedian() {
