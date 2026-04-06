@@ -9,6 +9,7 @@
 #include "esp_timer.h"
 #include <algorithm>
 #include <cstring>
+#include "esp_cpu.h" // 必須引入此標頭檔以使用 CPU 計時器
 
 esp_timer_handle_t SensorEngine::s_timer = nullptr;
 
@@ -52,40 +53,58 @@ static uint16_t touchRiseTimeTo4095(uint32_t dtUs) {
 
 uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
     if (gpioIsAdcCapable(gpioPin)) {
+        // --- 方法 A: ADC 電荷分享法修正 ---
         pinMode(gpioPin, OUTPUT);
         digitalWrite(gpioPin, LOW);
         delayMicroseconds(TOUCH_DISCHARGE_US);
+        
+        // 關鍵修正：取消 delayMicroseconds！
+        // 直接開啟上拉並以最快速度讀取，利用 analogRead 本身初始化的微小延遲來作為充電時間
         pinMode(gpioPin, INPUT_PULLUP);
-        delayMicroseconds(TOUCH_CHARGE_DWELL_US);
-        /* Arduino-ESP32 3.x oneshot ADC：接腳／衰減就緒後捨棄首筆再讀 */
+        
         analogSetPinAttenuation(gpioPin, ADC_11db);
-        (void)analogRead(gpioPin);
+        // (void)analogRead(gpioPin); // 在這個極限速度下，捨棄首筆反而會錯過充電斜率，建議直接讀
         int r = analogRead(gpioPin);
-        if (r < 0) {
-            r = 0;
-        }
-        if (r > 4095) {
-            r = 4095;
-        }
+        
+        if (r < 0) r = 0;
+        if (r > 4095) r = 4095;
+        
         pinMode(gpioPin, INPUT);
         return static_cast<uint16_t>(r);
     }
 
+    // --- 方法 B: 數位 RC 計時法修正 ---
     pinMode(gpioPin, OUTPUT);
     digitalWrite(gpioPin, LOW);
     delayMicroseconds(TOUCH_DISCHARGE_US);
+    
+    // 啟動上拉並立即開始高精度計時
     pinMode(gpioPin, INPUT_PULLUP);
-    const uint32_t t0 = micros();
-    const uint32_t tmax = 8000u;
-    while (digitalRead(gpioPin) == LOW) {
-        if ((micros() - t0) > tmax) {
-            pinMode(gpioPin, INPUT);
-            return 0;
+    uint32_t start_cycles = esp_cpu_get_cycle_count();
+    
+    // 關鍵修正：使用 GPIO 暫存器直接讀取，避開 digitalRead 的延遲
+    // 160MHz 下，這裡的迴圈每秒可採樣千萬次
+    while (((REG_READ(GPIO_IN_REG) >> gpioPin) & 1) == 0) {
+        // 超時保護：超過約 160,000 個週期 (約 1ms) 強制跳出
+        if (esp_cpu_get_cycle_count() - start_cycles > 160000) {
+            break;
         }
     }
-    const uint32_t dt = micros() - t0;
+    
+    uint32_t dt_cycles = esp_cpu_get_cycle_count() - start_cycles;
     pinMode(gpioPin, INPUT);
-    return touchRiseTimeTo4095(dt);
+    
+    // 由於我們改用 cycle 計數，數值會比 micros 大很多，需要重新定義轉換比例
+    // 假設未觸碰約 500 cycles，觸碰後可能達 2000 cycles
+    // 你可以根據 OmniSense 儀表板觀測到的實際 raw data 來微調這個映射常數
+    const uint32_t capCycles = 10000u; // 設定一個合理的上限值
+    if (dt_cycles > capCycles) dt_cycles = capCycles;
+    
+    uint32_t sub = (dt_cycles * 4095u) / capCycles;
+    if (sub > 4095u) sub = 4095u;
+    
+    // 讓數值行為與 ADC 邏輯一致：觸碰時 dt 變大，回傳值變小
+    return static_cast<uint16_t>(4095u - sub);
 }
 
 void SensorEngine::resetTouchMedian() {
