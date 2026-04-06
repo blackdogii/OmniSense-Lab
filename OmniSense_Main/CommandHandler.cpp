@@ -42,6 +42,14 @@ void CommandHandler::processCommand(const uint8_t* data, size_t len) {
                     g_sysConfig.activeMask, g_sysConfig.sampleRate, (int)g_sysConfig.resolution);
             }
             break;
+        case CMD_SET_TOUCH_CAP:
+            if (len >= 2) {
+                g_sysConfig.touchLogicalChannel = data[1];
+                SensorEngine::resetTouchMedian();
+                SensorEngine::applyPinPullups();
+                Serial.printf("Touch cap: logicalCh=%u (255=off)\n", g_sysConfig.touchLogicalChannel);
+            }
+            break;
         case CMD_REBOOT:
             ESP.restart();
             break;

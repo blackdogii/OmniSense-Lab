@@ -2,6 +2,7 @@
  * 專案：OmniSense Lab
  * 作者：小威老師
  * 說明：多通道取樣由 esp_timer 週期觸發；時間戳為 micros()；ADC 上拉可於每次讀取後以 gpio_pullup_en 強制維持。
+ *       軟體電容觸控：RC 充放電時間（µs）＋ 7 抽樣中位數濾波。
  * 硬體：ESP32-C3（ADC 衰減、GPIO 模式）
  * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
  */
@@ -9,6 +10,7 @@
 #include "Config.h"
 #include "driver/gpio.h"
 #include "esp_timer.h"
+#include <algorithm>
 #include <cstring>
 
 esp_timer_handle_t SensorEngine::s_timer = nullptr;
@@ -18,6 +20,54 @@ static uint8_t s_count = 0;
 static uint32_t s_tsUs = 0;
 static volatile bool s_pending = false;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+
+/** 觸控通道專用：7 點中位數（滑動窗） */
+static uint16_t s_touchWin[7];
+static uint8_t s_touchFill = 0;
+
+static int physicalPinFromLogical(int logical) {
+    if (logical < 0 || logical >= MAX_CHANNELS) return -1;
+    if (logical < NUM_ADC_CHANNELS) return ADC_PINS[logical];
+    return DIGITAL_PINS[logical - NUM_ADC_CHANNELS];
+}
+
+static uint16_t touchMedianPush(uint16_t v) {
+    if (s_touchFill < 7) {
+        s_touchWin[s_touchFill++] = v;
+    } else {
+        memmove(s_touchWin, s_touchWin + 1, 6 * sizeof(uint16_t));
+        s_touchWin[6] = v;
+    }
+    uint16_t b[7];
+    const uint8_t n = s_touchFill;
+    memcpy(b, s_touchWin, n * sizeof(uint16_t));
+    std::sort(b, b + n);
+    return b[n / 2];
+}
+
+uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
+    pinMode(gpioPin, OUTPUT);
+    digitalWrite(gpioPin, LOW);
+    delayMicroseconds(4);
+    pinMode(gpioPin, INPUT_PULLUP);
+    const uint32_t t0 = micros();
+    const uint32_t timeout = 5000;
+    while (digitalRead(gpioPin) == LOW) {
+        if (micros() - t0 > timeout) {
+            return static_cast<uint16_t>(timeout);
+        }
+    }
+    uint32_t dt = micros() - t0;
+    if (dt > 65535u) {
+        dt = 65535u;
+    }
+    return static_cast<uint16_t>(dt);
+}
+
+void SensorEngine::resetTouchMedian() {
+    s_touchFill = 0;
+    memset(s_touchWin, 0, sizeof(s_touchWin));
+}
 
 static void sensorTimerCb(void* /*arg*/) {
     if (!g_sysConfig.isRunning || g_sysConfig.sampleRate == 0) {
@@ -30,11 +80,21 @@ static void sensorTimerCb(void* /*arg*/) {
 
     for (int i = 0; i < MAX_CHANNELS; i++) {
         if ((g_sysConfig.activeMask >> i) & 0x01) {
-            if (i < NUM_ADC_CHANNELS) {
+            if (g_sysConfig.touchLogicalChannel != 0xFF &&
+                static_cast<int>(g_sysConfig.touchLogicalChannel) == i) {
+                const int pin = physicalPinFromLogical(i);
+                if (pin >= 0) {
+                    const uint16_t med = touchMedianPush(SensorEngine::readSoftwareTouch(static_cast<uint8_t>(pin)));
+                    tmp[cnt++] = med;
+                    if ((g_sysConfig.pullupMask >> i) & 1) {
+                        gpio_pullup_en(static_cast<gpio_num_t>(pin));
+                    }
+                }
+            } else if (i < NUM_ADC_CHANNELS) {
                 const int pin = ADC_PINS[i];
-                tmp[cnt++] = (uint16_t)analogRead(pin);
+                tmp[cnt++] = static_cast<uint16_t>(analogRead(pin));
                 if ((g_sysConfig.pullupMask >> i) & 1) {
-                    gpio_pullup_en((gpio_num_t)pin);
+                    gpio_pullup_en(static_cast<gpio_num_t>(pin));
                 }
             } else {
                 const int di = i - NUM_ADC_CHANNELS;

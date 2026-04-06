@@ -20,6 +20,8 @@
 
 #define CMD_SET_CONFIG 0x01
 #define CMD_CALIBRATE  0x02
+/** 軟體電容觸控：[0x05][logicalCh 0–8，0xFF=關閉] — 指定邏輯通道改以 RC 充放電時間（µs）回報 */
+#define CMD_SET_TOUCH_CAP 0x05
 #define CMD_REBOOT     0xFF
 
 // --- 腳位與頻道設定 (補回遺失定義) ---
@@ -43,6 +45,8 @@ struct SystemConfig {
     uint16_t sampleRate;
     BitDepth resolution;
     bool isRunning;
+    /** 0xFF：關閉；0–8：該邏輯通道改為軟體觸控（充電時間 µs，非 ADC 電壓） */
+    uint8_t touchLogicalChannel;
 };
 
 extern SystemConfig g_sysConfig;

@@ -1,3 +1,10 @@
+/*
+ * 專案：OmniSense Lab
+ * 檔案：OmniSense_Main.ino
+ * 作者：小威老師
+ * 說明：ESP32-C3 BLE 感測中樞；採樣時間戳固定為 micros()；下行指令見 Config.h（含 CMD_SET_TOUCH_CAP）。
+ * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ */
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
@@ -8,8 +15,8 @@
 #include "CommandHandler.h"
 #include "SensorEngine.h"
 
-/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）與舊韌體行為一致，其餘可經 8B 指令關閉 */
-SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true};
+/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）；touchLogicalChannel=0xFF 表示非軟體觸控模式 */
+SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true, 0xFF};
 BLECharacteristic *pTxChar;
 bool isConnected = false;
 

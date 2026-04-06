@@ -26,6 +26,14 @@ public:
      */
     static bool takePending(uint16_t* outputData, uint8_t& count, uint32_t& timestampUs);
 
+    /**
+     * RC 充放電式軟體觸控：腳位先放電再內建上拉充電，回傳升緣所需時間（微秒）。
+     * 僅供診斷／教學；請勿與需穩定 ADC 採樣之同一腳位並行高頻輪詢。
+     */
+    static uint16_t readSoftwareTouch(uint8_t gpioPin);
+    /** 切換觸控通道或關閉觸控模式時清空中位數緩衝 */
+    static void resetTouchMedian();
+
 private:
     static esp_timer_handle_t s_timer;
 };
