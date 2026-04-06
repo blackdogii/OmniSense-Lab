@@ -1,27 +1,23 @@
 <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
     <div class="lg:col-span-1 flex flex-col gap-6">
         <div class="glass-card p-6 rounded-3xl shadow-2xl">
-            <div class="flex items-center gap-2 mb-6 border-b border-slate-700/50 pb-3">
+            <div class="flex items-center gap-2 mb-4 border-b border-slate-700/50 pb-3">
                 <i data-lucide="cpu" class="w-4 h-4 text-cyan-400"></i>
-                <h2 class="text-sm font-bold text-slate-200">腳位診斷 (按分類)</h2>
+                <h2 class="text-sm font-bold text-slate-200">腳位診斷</h2>
             </div>
-            <div class="mb-5">
-                <p class="text-[10px] font-bold text-cyan-500 uppercase mb-2 flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 bg-cyan-500 rounded-full animate-pulse"></span> 類比輸入 (ADC1)
-                </p>
-                <div class="grid grid-cols-2 gap-2" id="group-analog"></div>
+            <div class="mb-4">
+                <p class="text-[10px] font-bold text-cyan-500 uppercase mb-2">類比 G0·G1·G3·G4</p>
+                <p class="text-[9px] text-slate-500 mb-2">開啟／關閉 · 模式：一般／上拉／觸控</p>
+                <div id="pins-analog-four" class="flex flex-col gap-2"></div>
             </div>
-            <div class="mb-5">
-                <p class="text-[10px] font-bold text-amber-500 uppercase mb-2 flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 bg-amber-500 rounded-full"></span> 支援/複合 (Hybrid)
-                </p>
-                <div class="grid grid-cols-2 gap-2" id="group-support"></div>
+            <div class="mb-4 border-t border-slate-700/50 pt-4">
+                <p class="text-[10px] font-bold text-amber-500 uppercase mb-2">類比 G2（僅類比）</p>
+                <div id="pins-g2"></div>
             </div>
-            <div class="mb-5">
-                <p class="text-[10px] font-bold text-emerald-500 uppercase mb-2 flex items-center gap-1">
-                    <span class="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span> 數位輸入 (Input)
-                </p>
-                <div class="grid grid-cols-2 gap-2" id="group-digital"></div>
+            <div class="border-t border-slate-700/50 pt-4">
+                <p class="text-[10px] font-bold text-emerald-500 uppercase mb-2">數位 G8·G9·G20·G21</p>
+                <p class="text-[9px] text-slate-500 mb-2">僅數位，內建上拉恆開</p>
+                <div id="pins-digital" class="flex flex-col gap-2"></div>
             </div>
         </div>
         <div class="glass-card p-6 rounded-3xl shadow-2xl space-y-6">
@@ -40,21 +36,13 @@
                 </select>
             </div>
             <div>
-                <label class="text-xs font-bold text-slate-400 mb-3 block text-center">波形濾波（類比／Hybrid 通道）</label>
+                <label class="text-xs font-bold text-slate-400 mb-3 block text-center">波形濾波（類比通道）</label>
                 <select id="filterSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none">
                     <option value="none">無</option>
                     <option value="ma">移動平均（窗長 8）</option>
                     <option value="kalman" selected>卡爾曼（1D，預設 Q/R）</option>
                 </select>
-                <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位輸入通道維持原始 0／4095，不套用濾波。觸控模式通道不套用上述濾波。</p>
-            </div>
-            <div class="border-t border-slate-700/50 pt-4">
-                <label class="text-xs font-bold text-slate-400 block mb-2">觸控判定 <code class="text-cyan-500/90">touchThreshold</code>（0–4095）</label>
-                <p class="text-[10px] text-slate-500 mb-2">讀值低於此門檻視為觸摸（波形下掉）；僅網頁端使用。</p>
-                <div class="flex items-center gap-3">
-                    <input type="range" id="touchThresholdRange" min="0" max="4095" value="2200" class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
-                    <span id="touchThresholdLabel" class="text-cyan-400 font-mono text-sm w-14 text-right">2200</span>
-                </div>
+                <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位通道不濾波；觸控模式通道不套用上述濾波。</p>
             </div>
             <button type="button" id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm uppercase transition-all shadow-xl active:scale-95">
                 應用配置
@@ -63,7 +51,7 @@
     </div>
     <div class="lg:col-span-3 space-y-6">
         <div class="glass-card p-6 rounded-[2rem] shadow-2xl relative">
-            <div class="flex justify-between items-center mb-6 relative z-30">
+            <div class="flex justify-between items-center mb-4 relative z-30">
                 <div class="flex items-center gap-3">
                     <i data-lucide="line-chart" class="text-cyan-400"></i>
                     <h2 id="waveSectionTitle" class="text-xl font-bold">即時感測波形</h2>
@@ -73,6 +61,7 @@
                     <button type="button" id="exportBtn" class="text-[9px] font-bold bg-emerald-600/80 px-4 py-2 rounded-xl hover:bg-emerald-600 transition-colors uppercase min-h-[36px] min-w-[4rem]">導出 CSV</button>
                 </div>
             </div>
+            <div id="wave-legend" class="flex flex-wrap gap-x-4 gap-y-1 mb-2 min-h-[1.25rem] text-[10px] text-slate-400"></div>
             <div id="canvasParent" class="canvas-container w-full aspect-[21/9] bg-slate-950 rounded-2xl border border-slate-800 overflow-hidden relative z-0"></div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" id="dataCards"></div>

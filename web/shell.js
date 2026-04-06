@@ -4,14 +4,7 @@
 
 import { pushBlePacket, clearBleQueue, startEventLoop } from './core/events.js';
 import * as ble from './core/ble.js';
-import {
-    omni,
-    OMNISENSE_VER_X,
-    OMNISENSE_VER_FW,
-    OMNISENSE_VER_WEB,
-    OMNISENSE_WEB_VERSION,
-    OMNISENSE_VERSION_CODE
-} from './core/state.js';
+import { omni } from './core/state.js';
 
 let activeModule = null;
 let activeId = null;
@@ -109,15 +102,7 @@ function onDisconnectClick() {
     if (si) si.innerText = '已斷開藍牙';
 }
 
-function setVersionLine() {
-    const verEl = document.getElementById('appVersion');
-    if (verEl) {
-        verEl.textContent = `版本 ${OMNISENSE_WEB_VERSION}（板級／韌體／網頁 ${OMNISENSE_VER_X}／${OMNISENSE_VER_FW}／${OMNISENSE_VER_WEB}）· 0x${OMNISENSE_VERSION_CODE.toString(16).toUpperCase()}`;
-    }
-}
-
 async function init() {
-    setVersionLine();
     const projects = await getProjects();
     buildNav(projects, document.getElementById('navDesktop'), false);
     buildNav(projects, document.getElementById('navMobileInner'), true);
