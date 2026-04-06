@@ -33,8 +33,13 @@ const int MAX_CHANNELS = 9;
 // --- 系統枚舉與結構 ---
 enum BitDepth { BIT_8 = 0, BIT_12 = 1, BIT_16 = 2 };
 
+/**
+ * activeMask / pullupMask：各 9 通道用 bit0..bit8（與 index.html 邏輯通道一致）
+ * pullupMask：1=INPUT_PULLUP，0=INPUT（ESP32-C3 內建弱上拉）
+ */
 struct SystemConfig {
     uint16_t activeMask;
+    uint16_t pullupMask;
     uint16_t sampleRate;
     BitDepth resolution;
     bool isRunning;

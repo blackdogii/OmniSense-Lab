@@ -13,6 +13,8 @@
 class SensorEngine {
 public:
     static void init();
+    /** 依 g_sysConfig.pullupMask 設定九路 GPIO 為 INPUT 或 INPUT_PULLUP */
+    static void applyPinPullups();
     static bool update(uint16_t* outputData, uint8_t& count, uint32_t& timestamp);
 private:
     static uint32_t lastMicros;

@@ -37,6 +37,7 @@
         /* 避免手機上按鈕被手勢或重疊層吃掉點擊 */
         #toolbarActions button { position: relative; z-index: 40; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
         #pwaInstallBanner { padding-bottom: env(safe-area-inset-bottom, 0px); }
+        .pullup-btn.pullup-active { color: #22d3ee; border-color: rgba(34, 211, 238, 0.55); box-shadow: 0 0 10px rgba(34, 211, 238, 0.45); }
     </style>
 </head>
 <body class="p-4 md:p-8 min-h-screen">
@@ -244,6 +245,8 @@
 
         let bleDevice, txChar, rxChar;
         let activeMask = 0x0001;
+        /** 與韌體預設一致：邏輯 7、8（GPIO20/21）預設上拉；bit 對應 9 通道 */
+        let pullupMask = 0x0180;
         let dataHistory = Array.from({length: 9}, () => []);
         const MAX_HISTORY = 100;
         const MA_WINDOW = 8;
@@ -483,12 +486,23 @@
         }
 
         async function apply() {
-            if(!rxChar) return;
-            const f = parseInt(document.getElementById('freqRange').value);
-            const r = parseInt(document.getElementById('resSelect').value);
-            const buf = new Uint8Array([0x01, (activeMask >> 8) & 0xFF, activeMask & 0xFF, (f >> 8) & 0xFF, f & 0xFF, r]);
+            if (!rxChar) return;
+            const f = parseInt(document.getElementById('freqRange').value, 10);
+            const r = parseInt(document.getElementById('resSelect').value, 10);
+            const am = activeMask & 0x01ff;
+            const pu = pullupMask & 0x01ff;
+            const buf = new Uint8Array([
+                0x01,
+                (am >> 8) & 0xff,
+                am & 0xff,
+                (pu >> 8) & 0xff,
+                pu & 0xff,
+                (f >> 8) & 0xff,
+                f & 0xff,
+                r & 0xff
+            ]);
             await rxChar.writeValue(buf);
-            document.getElementById('syncIndicator').innerText = "⚡ 同步完成";
+            document.getElementById('syncIndicator').innerText = '⚡ 同步完成';
         }
 
         // --- 5. 圖表繪製 ---
@@ -513,15 +527,53 @@
         });
 
         // --- 6. UI 初始化（DOMContentLoaded：避免腳本早於節點執行導致按鈕無效）---
+        function setPullupUi(id) {
+            const el = document.getElementById(`pullup-${id}`);
+            if (!el) return;
+            const on = (pullupMask >> id) & 1;
+            el.classList.toggle('pullup-active', !!on);
+            el.setAttribute('aria-pressed', on ? 'true' : 'false');
+        }
+
+        function togglePullup(id, ev) {
+            if (ev) {
+                ev.preventDefault();
+                ev.stopPropagation();
+            }
+            pullupMask ^= 1 << id;
+            pullupMask &= 0x01ff;
+            setPullupUi(id);
+            const si = document.getElementById('syncIndicator');
+            if (si) si.innerText = '⚠️ 上拉設定已變更，請按「應用配置」同步';
+        }
+
         function initUi() {
             PINS_CONFIG.forEach((p) => {
                 const group = document.getElementById(`group-${p.type}`);
+                const row = document.createElement('div');
+                row.className = 'flex items-center gap-1 justify-center flex-wrap';
+
                 const btn = document.createElement('button');
+                btn.type = 'button';
                 btn.id = `btn-${p.id}`;
                 btn.innerHTML = `<span class="opacity-40">G</span>${p.gpio}`;
                 btn.className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${p.id === 0 ? 'bg-cyan-500 border-cyan-400' : 'border-slate-700 text-slate-500'}`;
                 btn.onclick = () => toggle(p.id);
-                group.appendChild(btn);
+                row.appendChild(btn);
+
+                const pbtn = document.createElement('button');
+                pbtn.type = 'button';
+                pbtn.id = `pullup-${p.id}`;
+                pbtn.className =
+                    'pullup-btn shrink-0 p-1.5 rounded-lg border border-slate-600/60 text-slate-500 hover:bg-slate-700/40 transition-shadow';
+                pbtn.title = '內建弱上拉 (~45kΩ，ESP32-C3)';
+                pbtn.setAttribute('aria-label', `GPIO ${p.gpio} 內部上拉`);
+                pbtn.innerHTML = '<i data-lucide="magnet" class="w-3.5 h-3.5"></i>';
+                pbtn.addEventListener('click', (e) => togglePullup(p.id, e));
+                row.appendChild(pbtn);
+
+                group.appendChild(row);
+                setPullupUi(p.id);
 
                 const cards = document.getElementById('dataCards');
                 const c = document.createElement('div');

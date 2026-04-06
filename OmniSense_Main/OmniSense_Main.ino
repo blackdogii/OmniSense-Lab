@@ -8,7 +8,8 @@
 #include "CommandHandler.h"
 #include "SensorEngine.h"
 
-SystemConfig g_sysConfig = {0x0001, 100, BIT_12, true};
+/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）與舊韌體行為一致，其餘可經 8B 指令關閉 */
+SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true};
 BLECharacteristic *pTxChar;
 bool isConnected = false;
 

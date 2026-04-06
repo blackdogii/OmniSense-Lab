@@ -84,7 +84,7 @@
 ### 3.2 下行指令（`CommandHandler` / `Config.h`）
 
 - `CMD_SET_CONFIG`（0x01）、`CMD_CALIBRATE`（0x02）、`CMD_REBOOT`（0xFF）定義於 `Config.h`；**實際有處理的邏輯以 `CommandHandler.cpp` 為準**（例如 `CMD_CALIBRATE` 若尚未實作，勿在文件宣稱已支援）。
-- `CMD_SET_CONFIG` 建議 payload（6 bytes）：`[0x01, mask_hi, mask_lo, rate_hi, rate_lo, resolution]`；韌體見 `CommandHandler.cpp`。
+- `CMD_SET_CONFIG`：**8 bytes（建議）** `[0x01, ActiveMask_hi, ActiveMask_lo, PullupMask_hi, PullupMask_lo, Rate_hi, Rate_lo, resolution]` — `PullupMask` 控制九路 GPIO 內建上拉（bit0..8）。**6 bytes 舊格式**仍支援，收到時**不變更** `pullupMask`；見 `CommandHandler.cpp`。
 - **協定凍結後**：除非刻意發行**新韌體世代**，否則勿改 payload 長度或欄位順序；新功能優先放在 Web 或以**預留指令碼**在韌體中 no-op，避免破壞舊裝置。
 
 ### 3.3 上行封包（韌體真相：`BitPacker.cpp`）
