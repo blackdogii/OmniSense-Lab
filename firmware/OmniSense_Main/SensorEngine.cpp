@@ -52,44 +52,35 @@ static uint16_t touchRiseTimeTo4095(uint32_t dtUs) {
 }
 
 uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
-    if (gpioIsAdcCapable(gpioPin)) {
-        // --- 方法 A: ADC 電荷分享法修正 ---
-        pinMode(gpioPin, OUTPUT);
-        digitalWrite(gpioPin, LOW);
-        delayMicroseconds(TOUCH_DISCHARGE_US);
-        
-        // 關鍵修正：取消 delayMicroseconds！
-        // 直接開啟上拉並以最快速度讀取，利用 analogRead 本身初始化的微小延遲來作為充電時間
-        pinMode(gpioPin, INPUT_PULLUP);
-        
-        analogSetPinAttenuation(gpioPin, ADC_11db);
-        // (void)analogRead(gpioPin); // 在這個極限速度下，捨棄首筆反而會錯過充電斜率，建議直接讀
-        int r = analogRead(gpioPin);
-        
-        if (r < 0) r = 0;
-        if (r > 4095) r = 4095;
-        
-        pinMode(gpioPin, INPUT);
-        return static_cast<uint16_t>(r);
-    }
-
-    // --- 方法 B: 數位 RC 計時法修正 ---
     pinMode(gpioPin, OUTPUT);
     digitalWrite(gpioPin, LOW);
-    delayMicroseconds(TOUCH_DISCHARGE_US);
+    delayMicroseconds(TOUCH_DISCHARGE_US); // 徹底放電 
+
+    // --- 關鍵修正：進入臨界區防止中斷干擾 ---
+    portENTER_CRITICAL(&s_mux);
     
-    // 啟動上拉並立即開始高精度計時
-    pinMode(gpioPin, INPUT_PULLUP);
-    uint32_t start_cycles = esp_cpu_get_cycle_count();
+    // 啟動計時 (使用 160MHz 的 CPU 週期)
+    uint32_t start = esp_cpu_get_cycle_count();
     
-    // 關鍵修正：使用 GPIO 暫存器直接讀取，避開 digitalRead 的延遲
-    // 160MHz 下，這裡的迴圈每秒可採樣千萬次
+    pinMode(gpioPin, INPUT_PULLUP); // 開始充電 
+
+    // 極速輪詢暫存器 (避開 digitalRead 的延遲)
+    // GPIO_IN_REG 解析度遠高於 micros()
     while (((REG_READ(GPIO_IN_REG) >> gpioPin) & 1) == 0) {
-        // 超時保護：超過約 160,000 個週期 (約 1ms) 強制跳出
-        if (esp_cpu_get_cycle_count() - start_cycles > 160000) {
-            break;
-        }
+        if (esp_cpu_get_cycle_count() - start > 80000) break; // 0.5ms 超時保護
     }
+    
+    uint32_t dt = esp_cpu_get_cycle_count() - start;
+    portEXIT_CRITICAL(&s_mux);
+
+    pinMode(gpioPin, INPUT); // 恢復輸入模式 
+
+    // 將 CPU 週期映射到 0-4095
+    // 沒摸時 dt 小 (數值接近 4095)；摸了之後 dt 變大 (數值往下降)
+    const uint32_t max_cycles = 5000; // 根據實際波形微調此閾值
+    if (dt > max_cycles) dt = max_cycles;
+    return static_cast<uint16_t>(4095 - (dt * 4095 / max_cycles));
+}
     
     uint32_t dt_cycles = esp_cpu_get_cycle_count() - start_cycles;
     pinMode(gpioPin, INPUT);
