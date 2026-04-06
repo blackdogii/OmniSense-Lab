@@ -9,6 +9,7 @@
 #include <cstring>
 #include "Config.h"
 
+/** timestamp：裝置端 micros()（微秒），供前端以真實時間間隔繪圖 */
 size_t BitPacker::pack(uint8_t* buffer, uint32_t timestamp, const uint16_t* rawData, uint8_t channelCount) {
     size_t pos = 0;
     buffer[pos++] = PACKET_HEADER;

@@ -1,14 +1,56 @@
 /*
  * 專案：OmniSense Lab
  * 作者：小威老師
- * 說明：多通道取樣時序、ADC 與數位腳位讀取；內建上拉由 pullupMask 控制。
+ * 說明：多通道取樣由 esp_timer 週期觸發；時間戳為 micros()；ADC 上拉可於每次讀取後以 gpio_pullup_en 強制維持。
  * 硬體：ESP32-C3（ADC 衰減、GPIO 模式）
  * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
  */
 #include "SensorEngine.h"
 #include "Config.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+#include <cstring>
 
-uint32_t SensorEngine::lastMicros = 0;
+esp_timer_handle_t SensorEngine::s_timer = nullptr;
+
+static uint16_t s_out[MAX_CHANNELS];
+static uint8_t s_count = 0;
+static uint32_t s_tsUs = 0;
+static volatile bool s_pending = false;
+static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
+
+static void sensorTimerCb(void* /*arg*/) {
+    if (!g_sysConfig.isRunning || g_sysConfig.sampleRate == 0) {
+        return;
+    }
+
+    const uint32_t ts = micros();
+    uint16_t tmp[MAX_CHANNELS];
+    uint8_t cnt = 0;
+
+    for (int i = 0; i < MAX_CHANNELS; i++) {
+        if ((g_sysConfig.activeMask >> i) & 0x01) {
+            if (i < NUM_ADC_CHANNELS) {
+                const int pin = ADC_PINS[i];
+                tmp[cnt++] = (uint16_t)analogRead(pin);
+                if ((g_sysConfig.pullupMask >> i) & 1) {
+                    gpio_pullup_en((gpio_num_t)pin);
+                }
+            } else {
+                const int di = i - NUM_ADC_CHANNELS;
+                const bool hi = digitalRead(DIGITAL_PINS[di]) == HIGH;
+                tmp[cnt++] = hi ? 4095u : 0u;
+            }
+        }
+    }
+
+    portENTER_CRITICAL(&s_mux);
+    memcpy(s_out, tmp, cnt * sizeof(uint16_t));
+    s_count = cnt;
+    s_tsUs = ts;
+    s_pending = true;
+    portEXIT_CRITICAL(&s_mux);
+}
 
 void SensorEngine::applyPinPullups() {
     uint16_t m = g_sysConfig.pullupMask & 0x01FF;
@@ -32,33 +74,47 @@ void SensorEngine::applyPinPullups() {
     }
 }
 
+void SensorEngine::restartSamplingTimer() {
+    if (s_timer != nullptr) {
+        esp_timer_stop(s_timer);
+    }
+    if (g_sysConfig.sampleRate == 0) {
+        return;
+    }
+    uint64_t period_us = 1000000ULL / static_cast<uint64_t>(g_sysConfig.sampleRate);
+    if (period_us < 50) {
+        period_us = 50;
+    }
+    if (s_timer != nullptr) {
+        esp_timer_start_periodic(s_timer, period_us);
+    }
+}
+
+bool SensorEngine::takePending(uint16_t* outputData, uint8_t& count, uint32_t& timestampUs) {
+    portENTER_CRITICAL(&s_mux);
+    if (!s_pending) {
+        portEXIT_CRITICAL(&s_mux);
+        return false;
+    }
+    memcpy(outputData, s_out, s_count * sizeof(uint16_t));
+    count = s_count;
+    timestampUs = s_tsUs;
+    s_pending = false;
+    portEXIT_CRITICAL(&s_mux);
+    return true;
+}
+
 void SensorEngine::init() {
     analogReadResolution(12);
     applyPinPullups();
-    lastMicros = micros();
-}
 
-bool SensorEngine::update(uint16_t* outputData, uint8_t& count, uint32_t& timestamp) {
-    if (g_sysConfig.sampleRate == 0) return false;
-    uint32_t currentMicros = micros();
-    uint32_t interval = 1000000 / g_sysConfig.sampleRate;
-
-    if (currentMicros - lastMicros >= interval) {
-        lastMicros = currentMicros;
-        timestamp = millis();
-        count = 0;
-        for (int i = 0; i < MAX_CHANNELS; i++) {
-            if ((g_sysConfig.activeMask >> i) & 0x01) {
-                if (i < NUM_ADC_CHANNELS) {
-                    outputData[count++] = (uint16_t)analogRead(ADC_PINS[i]);
-                } else {
-                    int di = i - NUM_ADC_CHANNELS;
-                    bool hi = digitalRead(DIGITAL_PINS[di]) == HIGH;
-                    outputData[count++] = hi ? 4095u : 0u;
-                }
-            }
-        }
-        return true;
+    if (s_timer == nullptr) {
+        esp_timer_create_args_t cfg = {};
+        cfg.callback = &sensorTimerCb;
+        cfg.arg = nullptr;
+        cfg.dispatch_method = ESP_TIMER_TASK;
+        cfg.name = "omni_sens";
+        esp_timer_create(&cfg, &s_timer);
     }
-    return false;
+    restartSamplingTimer();
 }

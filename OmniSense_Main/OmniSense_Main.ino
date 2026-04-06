@@ -92,14 +92,14 @@ void setup() {
 }
 
 void loop() {
-    if (isConnected && g_sysConfig.isRunning) {
-        uint16_t samples[MAX_CHANNELS];
-        uint8_t count = 0;
-        uint32_t timestamp = 0;
+    uint16_t samples[MAX_CHANNELS];
+    uint8_t count = 0;
+    uint32_t timestampUs = 0;
 
-        if (SensorEngine::update(samples, count, timestamp)) {
+    if (SensorEngine::takePending(samples, count, timestampUs)) {
+        if (isConnected && g_sysConfig.isRunning) {
             uint8_t packet[MAX_MTU];
-            size_t packetLength = BitPacker::pack(packet, timestamp, samples, count);
+            size_t packetLength = BitPacker::pack(packet, timestampUs, samples, count);
             pTxChar->setValue(packet, packetLength);
             pTxChar->notify();
         }

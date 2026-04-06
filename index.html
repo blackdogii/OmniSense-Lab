@@ -315,8 +315,17 @@
             bow: { activeMask: 0x001f, pullupMask: 0x001f }
         };
 
-        let dataHistory = Array.from({length: 9}, () => []);
-        const MAX_HISTORY = 100;
+        /** 原始 BLE 封包佇列（回調僅入佇列，DOM／Canvas 在 RAF 內更新） */
+        const bleIncoming = [];
+        const BLE_QUEUE_CAP = 80;
+        /** 每筆：裝置 micros() 時間戳 + 九通道濾波後值（未啟用為 null） */
+        let packetHistory = [];
+        const MAX_PACKETS = 200;
+        let domFrame = 0;
+        let measuredFps = 60;
+        let fpsRafCount = 0;
+        let fpsLastTick = 0;
+        let omniP5 = null;
         const MA_WINDOW = 8;
 
         /** 邏輯通道 id：GPIO 0,1,3,4（類比）懸空時易亂跳 — 以滑動視窗偵測並用中位數抑制 */
@@ -386,6 +395,7 @@
         }
 
         // --- 3. 藍牙數據解析 (BitUnpacker)，與韌體 BitPacker 對齊 ---
+        /** ts：韌體 micros()（微秒，uint32 可能 wrap） */
         function unpack(view) {
             if(view.getUint8(0) !== 0xAA) return null;
             const mask = (view.getUint8(1) << 8) | view.getUint8(2);
@@ -408,9 +418,81 @@
             return { ts, mask, values };
         }
 
+        function u32Delta(a, b) {
+            return (a - b + 0x100000000) % 0x100000000;
+        }
+
+        function processBleQueue() {
+            while (bleIncoming.length > 0) {
+                const raw = bleIncoming.shift();
+                const view = new DataView(raw.buffer, raw.byteOffset, raw.byteLength);
+                const d = unpack(view);
+                if (!d) continue;
+
+                const channelSnapshot = Array(9).fill(null);
+                let vIdx = 0;
+                for (let i = 0; i < 9; i++) {
+                    if ((d.mask >> i) & 1) {
+                        const rawV = d.values[vIdx++];
+                        const { v: pre, floating } = stabilizeFloatingAnalog(rawV, i);
+                        const val = channelFilters[i] ? channelFilters[i](pre) : pre;
+                        channelSnapshot[i] = { raw: rawV, filtered: val, floating };
+                    }
+                }
+
+                const row = { tsUs: d.ts, values: Array(9).fill(null) };
+                for (let i = 0; i < 9; i++) {
+                    if (channelSnapshot[i]) row.values[i] = channelSnapshot[i].filtered;
+                }
+                packetHistory.push(row);
+                if (packetHistory.length > MAX_PACKETS) packetHistory.shift();
+
+                domFrame++;
+                const lowFps = measuredFps < 30;
+                const updateDom = currentViewId === 'dashboard';
+                if (updateDom) {
+                    for (let i = 0; i < 9; i++) {
+                        if (!channelSnapshot[i]) continue;
+                        if (lowFps && ((domFrame + i) & 1)) continue;
+                        const el = document.getElementById(`val-${i}`);
+                        if (el) el.innerText = channelSnapshot[i].filtered;
+                        const hint = document.getElementById(`float-hint-${i}`);
+                        if (hint) {
+                            if (FLOATING_ADC_IDS.has(i) && channelSnapshot[i].floating) {
+                                hint.classList.remove('hidden');
+                                hint.innerText = '可能懸空（已抑制雜訊）';
+                            } else {
+                                hint.classList.add('hidden');
+                            }
+                        }
+                    }
+                }
+
+                window.dispatchEvent(
+                    new CustomEvent('omnisense-data', {
+                        detail: { ts: d.ts, tsUs: d.ts, mask: d.mask, channels: channelSnapshot }
+                    })
+                );
+            }
+        }
+
+        function rafMain(now) {
+            requestAnimationFrame(rafMain);
+            fpsRafCount++;
+            const t = now !== undefined ? now : performance.now();
+            if (t - fpsLastTick >= 500) {
+                measuredFps = (fpsRafCount * 1000) / (t - fpsLastTick);
+                fpsRafCount = 0;
+                fpsLastTick = t;
+            }
+            processBleQueue();
+            if (omniP5 && currentViewId === 'dashboard') omniP5.redraw();
+        }
+
         function clearWaveform(ev) {
             if (ev) ev.preventDefault();
-            for (let i = 0; i < 9; i++) dataHistory[i].length = 0;
+            bleIncoming.length = 0;
+            packetHistory.length = 0;
             resetFloatingBuffers();
             rebuildChannelFilters();
             const el = document.getElementById('syncIndicator');
@@ -418,15 +500,14 @@
         }
 
         function buildCsvText() {
-            const maxLen = dataHistory.reduce((m, h) => Math.max(m, h.length), 0);
             const gpioHeader = PINS_CONFIG.map((p) => `GPIO${p.gpio}`);
-            const header = ['sample_index', ...gpioHeader];
+            const header = ['timestamp_us', ...gpioHeader];
             const lines = [header.join(',')];
-            for (let r = 0; r < maxLen; r++) {
-                const row = [r];
+            for (let r = 0; r < packetHistory.length; r++) {
+                const pkt = packetHistory[r];
+                const row = [pkt.tsUs];
                 for (let i = 0; i < 9; i++) {
-                    const h = dataHistory[i];
-                    row.push(h.length > r ? h[r] : '');
+                    row.push(pkt.values[i] != null ? pkt.values[i] : '');
                 }
                 lines.push(row.join(','));
             }
@@ -435,8 +516,7 @@
 
         async function exportCsv(ev) {
             if (ev) ev.preventDefault();
-            const maxLen = dataHistory.reduce((m, h) => Math.max(m, h.length), 0);
-            if (maxLen === 0) {
+            if (packetHistory.length === 0) {
                 alert('尚無資料可匯出，請先連線並接收資料。');
                 return;
             }
@@ -491,6 +571,7 @@
             try {
                 if (bleDevice && bleDevice.gatt.connected) await bleDevice.gatt.disconnect();
             } catch (e) { console.log(e); }
+            bleIncoming.length = 0;
             txChar = rxChar = null;
             bleDevice = null;
             document.getElementById('connectBtn').classList.remove('hidden');
@@ -521,36 +602,12 @@
 
                 await txChar.startNotifications();
                 txChar.addEventListener('characteristicvaluechanged', (e) => {
-                    const d = unpack(e.target.value);
-                    if (!d) return;
-                    const channelSnapshot = Array(9).fill(null);
-                    let vIdx = 0;
-                    for (let i = 0; i < 9; i++) {
-                        if ((d.mask >> i) & 1) {
-                            const raw = d.values[vIdx++];
-                            const { v: pre, floating } = stabilizeFloatingAnalog(raw, i);
-                            const val = channelFilters[i] ? channelFilters[i](pre) : pre;
-                            channelSnapshot[i] = { raw, filtered: val, floating };
-                            dataHistory[i].push(val);
-                            if (dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
-                            const el = document.getElementById(`val-${i}`);
-                            if (el) el.innerText = val;
-                            const hint = document.getElementById(`float-hint-${i}`);
-                            if (hint) {
-                                if (FLOATING_ADC_IDS.has(i) && floating) {
-                                    hint.classList.remove('hidden');
-                                    hint.innerText = '可能懸空（已抑制雜訊）';
-                                } else {
-                                    hint.classList.add('hidden');
-                                }
-                            }
-                        }
-                    }
-                    window.dispatchEvent(
-                        new CustomEvent('omnisense-data', {
-                            detail: { ts: d.ts, mask: d.mask, channels: channelSnapshot }
-                        })
-                    );
+                    const v = e.target.value;
+                    if (!v || v.byteLength < 8) return;
+                    const copy = new Uint8Array(v.byteLength);
+                    copy.set(new Uint8Array(v.buffer, v.byteOffset, v.byteLength));
+                    bleIncoming.push(copy);
+                    while (bleIncoming.length > BLE_QUEUE_CAP) bleIncoming.shift();
                 });
                 document.getElementById('connectBtn').classList.add('hidden');
                 document.getElementById('disconnectBtn').classList.remove('hidden');
@@ -580,23 +637,36 @@
             document.getElementById('syncIndicator').innerText = '⚡ 同步完成';
         }
 
-        // --- 5. 圖表繪製 ---
+        // --- 5. 圖表繪製（Canvas only；時間軸為封包內 micros()；以 noLoop + RAF redraw）---
         new p5((p) => {
             p.setup = () => {
                 const par = document.getElementById('canvasParent');
                 p.createCanvas(par.offsetWidth, par.offsetHeight).parent(par);
+                omniP5 = p;
+                p.noLoop();
             };
             p.draw = () => {
-                if (currentViewId !== 'dashboard') return;
                 p.background(10, 15, 30);
+                if (packetHistory.length < 2) return;
+                const t0 = packetHistory[0].tsUs >>> 0;
+                const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;
+                let tw = u32Delta(t1, t0);
+                if (tw === 0) tw = 1;
                 const colors = ['#22d3ee', '#818cf8', '#f59e0b', '#34d399', '#f472b6', '#10b981', '#10b981', '#3b82f6', '#3b82f6'];
                 p.strokeWeight(2.5);
-                for(let i=0; i<9; i++) {
-                    if(!((activeMask >> i) & 1)) continue;
-                    p.stroke(colors[i]); p.noFill(); p.beginShape();
-                    dataHistory[i].forEach((v, idx) => {
-                        p.vertex(p.map(idx, 0, MAX_HISTORY, 0, p.width), p.map(v, 0, 4095, p.height-30, 30));
-                    });
+                for (let i = 0; i < 9; i++) {
+                    if (!((activeMask >> i) & 1)) continue;
+                    p.stroke(colors[i]);
+                    p.noFill();
+                    p.beginShape();
+                    for (let k = 0; k < packetHistory.length; k++) {
+                        const pkt = packetHistory[k];
+                        if (pkt.values[i] == null) continue;
+                        const dx = u32Delta(pkt.tsUs >>> 0, t0);
+                        const x = p.map(dx, 0, tw, 0, p.width);
+                        const y = p.map(pkt.values[i], 0, 4095, p.height - 30, 30);
+                        p.vertex(x, y);
+                    }
                     p.endShape();
                 }
             };
@@ -677,6 +747,10 @@
                     }
                 }
             }
+            if (omniP5) {
+                if (viewId === 'dashboard') omniP5.redraw();
+                else omniP5.noLoop();
+            }
             lucide.createIcons();
         }
 
@@ -737,6 +811,8 @@
             document.querySelectorAll('[data-nav]').forEach((btn) => {
                 btn.addEventListener('click', () => switchView(btn.dataset.view));
             });
+            fpsLastTick = performance.now();
+            requestAnimationFrame(rafMain);
         }
 
         if (document.readyState === 'loading') {

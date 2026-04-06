@@ -26,6 +26,7 @@ void CommandHandler::processCommand(const uint8_t* data, size_t len) {
                 g_sysConfig.sampleRate = ((uint16_t)data[5] << 8) | data[6];
                 g_sysConfig.resolution = (BitDepth)data[7];
                 SensorEngine::applyPinPullups();
+                SensorEngine::restartSamplingTimer();
                 Serial.printf(
                     "Config 8B: mask=0x%03X pullup=0x%03X rate=%dHz res=%d\n",
                     g_sysConfig.activeMask, g_sysConfig.pullupMask,
@@ -35,6 +36,7 @@ void CommandHandler::processCommand(const uint8_t* data, size_t len) {
                 g_sysConfig.activeMask &= 0x01FF;
                 g_sysConfig.sampleRate = ((uint16_t)data[3] << 8) | data[4];
                 g_sysConfig.resolution = (BitDepth)data[5];
+                SensorEngine::restartSamplingTimer();
                 Serial.printf(
                     "Config 6B (legacy): mask=0x%03X rate=%dHz res=%d (pullup 不變)\n",
                     g_sysConfig.activeMask, g_sysConfig.sampleRate, (int)g_sysConfig.resolution);
