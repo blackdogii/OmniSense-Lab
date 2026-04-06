@@ -14,8 +14,20 @@
 
 #define BLE_DEVICE_NAME "Omni01"
 
-/** 與 index.html 內 OMNISENSE_WEB_VERSION 對齊，方便除錯與版本核對 */
-#define OMNISENSE_FW_VERSION "1.4.0"
+/**
+ * 版本（字串）：與 index.html 內 OMNISENSE_WEB_VERSION 必須一致。
+ * 版本欄位（數值）：寫入 SystemConfig.firmwareVersionField，例 0x0150 → v1.5.0。
+ */
+#define OMNISENSE_VERSION       "1.5.0"
+#define OMNISENSE_FW_VERSION    OMNISENSE_VERSION
+#define OMNISENSE_VERSION_CODE  0x0150u
+
+/** 軟體觸控：1ms 內充放電循環計次；可選 ADC 判斷充電完成（約 0.8V @ 12-bit） */
+#ifndef OMNISENSE_TOUCH_ANALOG_CHARGE
+#define OMNISENSE_TOUCH_ANALOG_CHARGE 1
+#endif
+#define TOUCH_CYCLE_WINDOW_US   1000u
+#define TOUCH_ANALOG_THRESHOLD  1000
 
 // --- 通訊協定常數 (補回遺失定義) ---
 #define PACKET_HEADER 0xAA
@@ -46,8 +58,10 @@ struct SystemConfig {
     uint16_t sampleRate;
     BitDepth resolution;
     bool isRunning;
-    /** bit0..8：該邏輯通道為軟體觸控（RC 充電時間 µs，經中位數濾波後填入 payload） */
+    /** bit0..8：該邏輯通道為軟體觸控（計次分數 0–1000，經中位數濾波後填入 payload） */
     uint16_t touchModeMask;
+    /** 韌體版本欄位（與 OMNISENSE_VERSION_CODE 一致，僅供除錯／對齊） */
+    uint16_t firmwareVersionField;
 };
 
 extern SystemConfig g_sysConfig;

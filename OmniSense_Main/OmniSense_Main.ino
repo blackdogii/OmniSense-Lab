@@ -15,8 +15,8 @@
 #include "CommandHandler.h"
 #include "SensorEngine.h"
 
-/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）；touchModeMask=0 */
-SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true, 0};
+/* 預設：通道 0 啟用；上拉預設 GPIO20/21；touchModeMask=0；firmwareVersionField 見 OMNISENSE_VERSION_CODE */
+SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true, 0, OMNISENSE_VERSION_CODE};
 BLECharacteristic *pTxChar;
 bool isConnected = false;
 
@@ -71,7 +71,7 @@ class MyMsgCallbacks: public BLECharacteristicCallbacks {
 
 void setup() {
     Serial.begin(115200);
-    Serial.printf("OmniSense Lab FW %s\n", OMNISENSE_FW_VERSION);
+    Serial.printf("OmniSense Lab FW %s (0x%04X)\n", OMNISENSE_FW_VERSION, (unsigned)OMNISENSE_VERSION_CODE);
     SensorEngine::init();
 
     BLEDevice::init(BLE_DEVICE_NAME);

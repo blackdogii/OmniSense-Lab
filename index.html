@@ -3,7 +3,7 @@
   專案：OmniSense Lab
   作者：小威老師
   說明：Web Bluetooth 主控台、p5.js 波形、CSV、軟體觸控（對應 ESP32-C3 韌體協定）。
-  版本：腳本內 OMNISENSE_WEB_VERSION 須與 OmniSense_Main/Config.h 之 OMNISENSE_FW_VERSION 一致。
+  版本：OMNISENSE_WEB_VERSION、OMNISENSE_VERSION_CODE 須與 Config.h 之 OMNISENSE_VERSION／OMNISENSE_VERSION_CODE／SystemConfig.firmwareVersionField 一致。
   授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
 -->
 <html lang="zh-TW">
@@ -150,11 +150,11 @@
                     </div>
 
                     <div class="border-t border-slate-700/50 pt-4">
-                        <label class="text-xs font-bold text-slate-400 block mb-2">觸控判定閾值 <code class="text-cyan-500/90">touchThreshold</code>（µs）</label>
-                        <p class="text-[10px] text-slate-500 mb-2">供實驗模組（如電子琴）判斷是否觸發；僅網頁端使用，不寫入韌體。</p>
+                        <label class="text-xs font-bold text-slate-400 block mb-2">觸控判定閾值 <code class="text-cyan-500/90">touchThreshold</code>（0–1000）</label>
+                        <p class="text-[10px] text-slate-500 mb-2">與韌體計次分數 (1000−cycles) 同量綱；供電子琴等實驗判斷；僅網頁端使用。</p>
                         <div class="flex items-center gap-3">
-                            <input type="range" id="touchThresholdRange" min="30" max="6000" value="450" class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
-                            <span id="touchThresholdLabel" class="text-cyan-400 font-mono text-sm w-14 text-right">450</span>
+                            <input type="range" id="touchThresholdRange" min="0" max="1000" value="500" class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                            <span id="touchThresholdLabel" class="text-cyan-400 font-mono text-sm w-14 text-right">500</span>
                         </div>
                     </div>
 
@@ -312,8 +312,9 @@
         let activeMask = 0x0001;
         /** 與韌體預設一致：邏輯 7、8（GPIO20/21）預設上拉；bit 對應 9 通道 */
         let pullupMask = 0x0180;
-        /** 與 OmniSense_Main/Config.h 內 OMNISENSE_FW_VERSION 對齊 */
-        const OMNISENSE_WEB_VERSION = '1.4.0';
+        /** 與 Config.h 之 OMNISENSE_VERSION／OMNISENSE_VERSION_CODE 對齊 */
+        const OMNISENSE_WEB_VERSION = '1.5.0';
+        const OMNISENSE_VERSION_CODE = 0x0150;
 
         /** 目前視圖：dashboard | piano | bow（切換不影響 BLE） */
         let currentViewId = 'dashboard';
@@ -323,7 +324,8 @@
          */
         let channelMode = PINS_CONFIG.map((pc) => (pc.type === 'digital' ? 'dig' : 'adc'));
         /** 觸發實驗動作之閾值（µs）；全域供 omnisense-data／電子琴等模組讀取 */
-        let touchThreshold = 450;
+        /** 觸控計次分數閾值（0–1000，與韌體 (1000−cycles) 同量綱） */
+        let touchThreshold = 500;
         window.touchThreshold = touchThreshold;
 
         const VIEW_META = {
@@ -428,8 +430,9 @@
             return (computeTouchModeMask() & activeMask & 0x01ff) !== 0;
         }
 
+        /** 觸控通道 Y 軸上限：自動適應資料，並限制在 0–1000（與韌體計次分數一致） */
         function touchModeYMax() {
-            let m = 500;
+            let m = 50;
             for (let pi = 0; pi < packetHistory.length; pi++) {
                 const pkt = packetHistory[pi];
                 for (let i = 0; i < 9; i++) {
@@ -437,7 +440,7 @@
                     if (pkt.values[i] != null) m = Math.max(m, pkt.values[i]);
                 }
             }
-            return Math.min(12000, Math.max(400, Math.ceil(m * 1.15)));
+            return Math.min(1000, Math.max(100, Math.ceil(m * 1.05)));
         }
 
         function updateCardTitles() {
@@ -448,7 +451,7 @@
                 const g = PINS_CONFIG[id].gpio;
                 if (channelMode[id] === 'touch') {
                     t.textContent = `GPIO ${g} · 觸控`;
-                    u.textContent = 'Charge Time (μs)';
+                    u.textContent = '計次分數 0–1000';
                 } else if (channelMode[id] === 'dig') {
                     t.textContent = `GPIO ${g}`;
                     u.textContent = '數位 0／4095';
@@ -463,7 +466,7 @@
             const el = document.getElementById('waveSectionTitle');
             if (!el) return;
             if (hasActiveTouchChannel()) {
-                el.textContent = '即時波形（觸控：Charge Time (μs)；其餘：ADC）';
+                el.textContent = '即時波形（觸控：0–1000 計次；其餘：ADC）';
             } else {
                 el.textContent = '即時感測波形';
             }
@@ -757,13 +760,14 @@
                 p.textSize(11);
                 p.textAlign(p.LEFT, p.TOP);
                 if (hasActiveTouchChannel()) {
-                    p.text('Y: Charge Time (μs) — 觸控通道', 6, 8);
-                    p.text('Y: 0–4095 — 類比／數位通道', 6, 22);
+                    p.text('Y: 觸控計次分數 0–1000', 6, 8);
+                    p.text('Y: 類比／數位 0–4095', 6, 22);
                 } else {
                     p.text('Y: ADC / 數位 (0–4095)', 6, 8);
                 }
                 if (hasActiveTouchChannel()) {
-                    const yThr = p.map(touchThreshold, 0, yT, p.height - 30, 30);
+                    const yTcap = Math.max(yT, 1);
+                    const yThr = p.map(touchThreshold, 0, yTcap, p.height - 30, 30);
                     p.stroke(148, 163, 184, 100);
                     p.strokeWeight(1);
                     p.line(0, yThr, p.width, yThr);
@@ -775,7 +779,7 @@
                     p.stroke(colors[i]);
                     p.noFill();
                     p.beginShape();
-                    const yMax = channelMode[i] === 'touch' ? yT : 4095;
+                    const yMax = channelMode[i] === 'touch' ? Math.max(yT, 1) : 4095;
                     for (let k = 0; k < packetHistory.length; k++) {
                         const pkt = packetHistory[k];
                         if (pkt.values[i] == null) continue;
@@ -893,7 +897,9 @@
         function initUi() {
             const verEl = document.getElementById('appVersion');
             if (verEl) {
-                verEl.textContent = `Web ${OMNISENSE_WEB_VERSION} · FW ${OMNISENSE_WEB_VERSION}`;
+                verEl.textContent = `Web ${OMNISENSE_WEB_VERSION} · FW ${OMNISENSE_WEB_VERSION} · 0x${OMNISENSE_VERSION_CODE.toString(
+                    16
+                ).toUpperCase()}`;
             }
 
             PINS_CONFIG.forEach((p) => {
@@ -990,7 +996,7 @@
             const tRng = document.getElementById('touchThresholdRange');
             if (tRng) {
                 tRng.addEventListener('input', () => {
-                    touchThreshold = parseInt(tRng.value, 10) || 450;
+                    touchThreshold = Math.min(1000, Math.max(0, parseInt(tRng.value, 10) || 0));
                     window.touchThreshold = touchThreshold;
                     const lab = document.getElementById('touchThresholdLabel');
                     if (lab) lab.textContent = String(touchThreshold);
