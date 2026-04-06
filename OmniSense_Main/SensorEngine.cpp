@@ -2,7 +2,7 @@
  * 專案：OmniSense Lab
  * 作者：小威老師
  * 說明：多通道取樣由 esp_timer 週期觸發；時間戳為 micros()；ADC 上拉可於每次讀取後以 gpio_pullup_en 強制維持。
- *       軟體觸控：1ms 窗內 RC 循環計次，回傳 (1000−count) 分數 0–1000；可選 ADC 門檻；7 抽樣中位數濾波。
+ *       多頻道觸控：依 touchModeMask 位元遍歷（無 switch 單腳限制）；類比積分法（ADC 腳）或上升時間換算 0–4095（非 ADC 腳）。
  * 硬體：ESP32-C3（ADC 衰減、GPIO 模式）
  * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
  */
@@ -40,54 +40,57 @@ static bool gpioIsAdcCapable(int pin) {
     return false;
 }
 
-/**
- * 固定 TOUCH_CYCLE_WINDOW_US 內，重複：放電 → 上拉充電 → 等待越過門檻。
- * 完成一次循環則 cycles++。回傳原始計次（未做 1000−count）。
- */
-static uint32_t countTouchCycles(int pin) {
-    const uint32_t t0 = micros();
-    const uint32_t win = TOUCH_CYCLE_WINDOW_US;
-    uint32_t cycles = 0;
-    while ((micros() - t0) < win) {
-        pinMode(pin, OUTPUT);
-        digitalWrite(pin, LOW);
-        delayMicroseconds(2);
-        pinMode(pin, INPUT_PULLUP);
-#if OMNISENSE_TOUCH_ANALOG_CHARGE
-        if (gpioIsAdcCapable(pin)) {
-            while (analogRead(pin) < TOUCH_ANALOG_THRESHOLD) {
-                if ((micros() - t0) >= win) {
-                    return cycles;
-                }
-            }
-        } else {
-            while (digitalRead(pin) == LOW) {
-                if ((micros() - t0) >= win) {
-                    return cycles;
-                }
-            }
-        }
-#else
-        while (digitalRead(pin) == LOW) {
-            if ((micros() - t0) >= win) {
-                return cycles;
-            }
-        }
-#endif
-        cycles++;
+/** 非 ADC 腳：上升時間 dt（µs）換算為 0–4095，與類比讀值同量綱（dt 大→觸碰→數值低） */
+static uint16_t touchRiseTimeTo4095(uint32_t dtUs) {
+    const uint32_t capUs = 5000u;
+    if (dtUs > capUs) {
+        dtUs = capUs;
     }
-    return cycles;
+    uint32_t sub = (dtUs * 4095u) / capUs;
+    if (sub > 4095u) {
+        sub = 4095u;
+    }
+    return static_cast<uint16_t>(4095u - sub);
 }
 
-static uint16_t touchScoreFromCycles(uint32_t cycles) {
-    int32_t s = 1000 - static_cast<int32_t>(cycles);
-    if (s < 0) {
-        s = 0;
+uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
+    if (gpioIsAdcCapable(gpioPin)) {
+        pinMode(gpioPin, OUTPUT);
+        digitalWrite(gpioPin, LOW);
+        delayMicroseconds(TOUCH_DISCHARGE_US);
+        pinMode(gpioPin, INPUT_PULLUP);
+        delayMicroseconds(TOUCH_CHARGE_DWELL_US);
+        int r = analogRead(gpioPin);
+        if (r < 0) {
+            r = 0;
+        }
+        if (r > 4095) {
+            r = 4095;
+        }
+        pinMode(gpioPin, INPUT);
+        return static_cast<uint16_t>(r);
     }
-    if (s > 1000) {
-        s = 1000;
+
+    pinMode(gpioPin, OUTPUT);
+    digitalWrite(gpioPin, LOW);
+    delayMicroseconds(TOUCH_DISCHARGE_US);
+    pinMode(gpioPin, INPUT_PULLUP);
+    const uint32_t t0 = micros();
+    const uint32_t tmax = 8000u;
+    while (digitalRead(gpioPin) == LOW) {
+        if ((micros() - t0) > tmax) {
+            pinMode(gpioPin, INPUT);
+            return 0;
+        }
     }
-    return static_cast<uint16_t>(s);
+    const uint32_t dt = micros() - t0;
+    pinMode(gpioPin, INPUT);
+    return touchRiseTimeTo4095(dt);
+}
+
+void SensorEngine::resetTouchMedian() {
+    memset(s_touchFill, 0, sizeof(s_touchFill));
+    memset(s_touchWin, 0, sizeof(s_touchWin));
 }
 
 static uint16_t touchMedianPushCh(int ch, uint16_t v) {
@@ -109,16 +112,6 @@ static uint16_t touchMedianPushCh(int ch, uint16_t v) {
     return b[n / 2];
 }
 
-uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
-    const uint32_t c = countTouchCycles(gpioPin);
-    return touchScoreFromCycles(c);
-}
-
-void SensorEngine::resetTouchMedian() {
-    memset(s_touchFill, 0, sizeof(s_touchFill));
-    memset(s_touchWin, 0, sizeof(s_touchWin));
-}
-
 static void sensorTimerCb(void* /*arg*/) {
     if (!g_sysConfig.isRunning || g_sysConfig.sampleRate == 0) {
         return;
@@ -128,9 +121,11 @@ static void sensorTimerCb(void* /*arg*/) {
     uint16_t tmp[MAX_CHANNELS];
     uint8_t cnt = 0;
 
+    const uint16_t tm = g_sysConfig.touchModeMask;
+
     for (int i = 0; i < MAX_CHANNELS; i++) {
         if ((g_sysConfig.activeMask >> i) & 0x01) {
-            if ((g_sysConfig.touchModeMask >> i) & 1) {
+            if ((tm >> i) & 1) {
                 const int pin = physicalPinFromLogical(i);
                 if (pin >= 0) {
                     const uint16_t med = touchMedianPushCh(

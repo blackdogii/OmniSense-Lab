@@ -16,7 +16,7 @@ void CommandHandler::processCommand(const uint8_t* data, size_t len) {
         case CMD_SET_CONFIG:
             /*
              * 10B：[0x01][AM_hi][AM_lo][PU_hi][PU_lo][Rate_hi][Rate_lo][Res][TouchMask_hi][TouchMask_lo]
-             *       TouchMask：bit=1 該通道為軟體觸控（payload 為 µs）
+             *       TouchMask：16-bit，bit i=1 該通道為觸控（payload 為 0–4095 類比積分或計時換算）
              * 8B：同上前 8 位元組，TouchMask 視為 0
              * 6B 舊協定：維持既有行為
              */
@@ -32,7 +32,7 @@ void CommandHandler::processCommand(const uint8_t* data, size_t len) {
                 } else {
                     g_sysConfig.touchModeMask = 0;
                 }
-                g_sysConfig.touchModeMask &= 0x01FF;
+                g_sysConfig.touchModeMask &= 0xFFFFu;
                 g_sysConfig.touchModeMask &= g_sysConfig.activeMask;
                 SensorEngine::resetTouchMedian();
                 SensorEngine::applyPinPullups();

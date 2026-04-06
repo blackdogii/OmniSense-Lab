@@ -29,12 +29,12 @@
 /** x：測試板 = 0（由您決定是否遞增） */
 #define OMNISENSE_VER_X   0
 /** y：韌體修訂，每次韌體釋出 +1 */
-#define OMNISENSE_VER_FW  1
+#define OMNISENSE_VER_FW  2
 /** z：網頁修訂，每次網頁釋出 +1 */
-#define OMNISENSE_VER_WEB 1
+#define OMNISENSE_VER_WEB 2
 
 /** 完整版本字串（務必與 index.html 之 OMNISENSE_WEB_VERSION 相同） */
-#define OMNISENSE_VERSION    "0.1.1"
+#define OMNISENSE_VERSION    "0.2.2"
 #define OMNISENSE_FW_VERSION OMNISENSE_VERSION
 
 /**
@@ -42,12 +42,11 @@
  */
 #define OMNISENSE_VERSION_CODE (((uint16_t)(OMNISENSE_VER_FW) << 8) | (uint16_t)(OMNISENSE_VER_WEB))
 
-/** 軟體觸控：1ms 內充放電循環計次；可選 ADC 判斷充電完成（約 0.8V @ 12-bit） */
-#ifndef OMNISENSE_TOUCH_ANALOG_CHARGE
-#define OMNISENSE_TOUCH_ANALOG_CHARGE 1
-#endif
-#define TOUCH_CYCLE_WINDOW_US   1000u
-#define TOUCH_ANALOG_THRESHOLD  1000
+/**
+ * 類比積分觸控：放電後上拉固定時間再 analogRead（0–4095）；非 ADC 腳位則以上升時間換算為 0–4095。
+ */
+#define TOUCH_DISCHARGE_US     50u
+#define TOUCH_CHARGE_DWELL_US  15u
 
 // --- 通訊協定常數 (補回遺失定義) ---
 #define PACKET_HEADER 0xAA
@@ -78,7 +77,7 @@ struct SystemConfig {
     uint16_t sampleRate;
     BitDepth resolution;
     bool isRunning;
-    /** bit0..8：該邏輯通道為軟體觸控（計次分數 0–1000，經中位數濾波後填入 payload） */
+    /** bit0..8：觸控模式（16-bit 遮罩；與 activeMask 交集後有效）；payload 為 0–4095 類比積分或計時換算值 */
     uint16_t touchModeMask;
     /** 與 OMNISENSE_VERSION_CODE（y 高八位、z 低八位）一致，僅供除錯／對齊 */
     uint16_t firmwareVersionField;

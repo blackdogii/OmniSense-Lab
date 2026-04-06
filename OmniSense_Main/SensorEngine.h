@@ -28,8 +28,7 @@ public:
     static bool takePending(uint16_t* outputData, uint8_t& count, uint32_t& timestampUs);
 
     /**
-     * 軟體觸控：固定時間窗內 RC 充放電循環計次，回傳 (1000−count) 之 0–1000 分數（觸碰時通常較大）。
-     * 可選 ADC 門檻判斷充電完成；經中位數濾波後送出。
+     * 觸控：類比積分（ADC 腳）或上升時間→0–4095（非 ADC 腳）；經中位數濾波後送出。
      */
     static uint16_t readSoftwareTouch(uint8_t gpioPin);
     /** 切換觸控通道或關閉觸控模式時清空中位數緩衝 */
