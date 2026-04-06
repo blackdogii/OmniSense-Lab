@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "experiments": [
+    {
+      "id": "dashboard",
+      "label": "主控台",
+      "shortLabel": "主控台",
+      "icon": "layout-dashboard",
+      "subtitle": "系統主控台"
+    },
+    {
+      "id": "simple-piano",
+      "label": "七音階電子琴",
+      "shortLabel": "電子琴",
+      "icon": "music",
+      "subtitle": "七音階電子琴"
+    },
+    {
+      "id": "magic-bow",
+      "label": "魔法弓箭",
+      "shortLabel": "弓箭",
+      "icon": "target",
+      "subtitle": "魔法弓箭"
+    }
+  ]
+}

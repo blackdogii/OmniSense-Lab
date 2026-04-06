@@ -8,7 +8,16 @@
 
 你現在是專精於 ESP32-C3 嵌入式開發與 Web Bluetooth（Web-BLE）應用的資深工程師。本專案名為「OmniSense Lab」，目標是打造物理實驗互動平台：韌體負責取樣與 BLE 串流，網頁負責連線、設定與視覺化。
 
-## 1. 專案架構（以本儲存庫實際結構為準）
+## 1. 專案架構（插件式目錄）
+
+- **韌體**：`firmware/OmniSense_Main/`（Arduino）
+- **Web 殼層**：`web/`（`index.html`、`shell.js`、`core/*`）
+- **實驗插件**：`experiments/<實驗 id>/app.js`，索引見 `projects.json`（與 `web/projects.json` 同步）
+- **協定與接線**：`docs/PROTOCOL.md`、`docs/WIRING_GUIDE.md`
+
+---
+
+## 1.1 專案架構（以本儲存庫實際結構為準）
 
 ### 1.1 產品定位：搖桿底座韌體凍結、演進在 Web
 

@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<!--
+  OmniSense Lab — App Shell（導覽、BLE、PWA）
+  目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+-->
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OmniSense Lab</title>
+    <link rel="manifest" href="manifest.json">
+    <link rel="apple-touch-icon" href="assets/icons/icon-192x192.png">
+    <meta name="theme-color" content="#0f172a">
+    <meta name="application-name" content="OmniSense Lab">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="OmniSense">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        body { background-color: #0f172a; color: #f8fafc; font-family: 'Inter', system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+        .glass-card { background: rgba(30, 41, 59, 0.7); backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.08); }
+        .canvas-container canvas { border-radius: 1rem; width: 100% !important; height: auto !important; }
+        .pin-btn { transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
+        .pin-btn:active { transform: scale(0.95); }
+        input[type=range] { accent-color: #22d3ee; }
+        #toolbarActions button { position: relative; z-index: 40; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+        #pwaInstallBanner { padding-bottom: env(safe-area-inset-bottom, 0px); }
+        .pullup-btn.pullup-active { color: #22d3ee; border-color: rgba(34, 211, 238, 0.55); box-shadow: 0 0 10px rgba(34, 211, 238, 0.45); }
+        .nav-tab { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.5rem 0.9rem; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 700; border: 1px solid transparent; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .nav-tab:not(.nav-tab-active) { color: #94a3b8; }
+        .nav-tab:not(.nav-tab-active):hover { background: rgba(30, 41, 59, 0.8); color: #e2e8f0; }
+        .nav-tab-active { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border-color: rgba(34, 211, 238, 0.35); }
+        #navMobile .nav-tab { flex: 1; flex-direction: column; justify-content: center; font-size: 0.65rem; padding: 0.5rem 0.25rem; gap: 0.2rem; }
+        #navMobile .nav-tab i { width: 1.35rem; height: 1.35rem; }
+    </style>
+</head>
+<body class="min-h-screen bg-[#0f172a] text-slate-100 pb-[5.25rem] md:pb-8">
+    <div class="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
+        <header id="appHeader" class="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 md:mb-8 gap-4">
+            <div class="flex items-center gap-4">
+                <div class="bg-cyan-500 p-2 rounded-xl shadow-lg shadow-cyan-500/20">
+                    <i data-lucide="microscope" class="text-white w-8 h-8"></i>
+                </div>
+                <div>
+                    <h1 class="text-2xl md:text-3xl font-black text-cyan-400 tracking-tight">OmniSense Lab</h1>
+                    <p id="headerSubtitle" class="text-slate-400 text-xs font-medium tracking-wide">系統主控台</p>
+                    <p id="appVersion" class="text-slate-500 text-[10px] font-mono mt-1 tracking-tight"></p>
+                    <p id="syncIndicator" class="text-[10px] text-slate-500 italic mt-1"><i data-lucide="refresh-cw" class="w-3 h-3 inline"></i> 尚未連線</p>
+                </div>
+            </div>
+            <div class="flex gap-3 shrink-0">
+                <button type="button" id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-5 md:px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30 text-sm">
+                    <i data-lucide="bluetooth"></i> 連結裝置
+                </button>
+                <button type="button" id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-5 md:px-6 py-2.5 rounded-full transition-all font-bold shadow-lg text-sm">
+                    <i data-lucide="unplug"></i> 斷開
+                </button>
+            </div>
+        </header>
+
+        <nav id="navDesktop" class="hidden md:flex flex-wrap gap-2 mb-6" aria-label="主要導覽"></nav>
+
+        <main id="experiment-root" class="min-h-[50vh]"></main>
+    </div>
+
+    <nav id="navMobile" class="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-700/80 bg-slate-900/95 backdrop-blur-md pb-[env(safe-area-inset-bottom,0px)]" aria-label="主要導覽">
+        <div id="navMobileInner" class="flex max-w-lg mx-auto"></div>
+    </nav>
+
+    <div id="pwaInstallBanner" class="fixed bottom-0 left-0 right-0 z-[100] hidden print:hidden" role="region" aria-label="安裝應用程式">
+        <div class="mx-auto max-w-7xl px-3 sm:px-4">
+            <div id="pwaInstallBannerInner" class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 rounded-t-2xl bg-blue-600 text-white px-4 py-3 shadow-[0_-4px_24px_rgba(37,99,235,0.45)] border border-blue-500/30">
+                <p class="text-sm leading-snug pr-1">將 <strong>OmniSense Lab</strong> 新增至主螢幕，之後可像 App 一樣快速開啟。</p>
+                <div class="flex gap-2 shrink-0 justify-end">
+                    <button type="button" id="pwaInstallDismiss" class="px-4 py-2 rounded-xl text-sm font-bold bg-white/15 hover:bg-white/25 transition-colors">稍後</button>
+                    <button type="button" id="pwaInstallBtn" class="px-5 py-2 rounded-xl text-sm font-black bg-white text-blue-700 hover:bg-blue-50 transition-colors shadow-md">安裝</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js', { scope: './' }).catch(() => {});
+            });
+        }
+        const PWA_DISMISS_KEY = 'omnisense_pwa_install_dismissed_v1';
+        let deferredInstallPrompt = null;
+        function isStandalonePwa() {
+            return window.matchMedia('(display-mode: standalone)').matches ||
+                window.matchMedia('(display-mode: minimal-ui)').matches ||
+                (window.navigator.standalone === true);
+        }
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredInstallPrompt = e;
+            if (isStandalonePwa()) return;
+            if (localStorage.getItem(PWA_DISMISS_KEY)) return;
+            document.getElementById('pwaInstallBanner')?.classList.remove('hidden');
+        });
+        window.addEventListener('appinstalled', () => {
+            deferredInstallPrompt = null;
+            document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+        });
+        document.getElementById('pwaInstallBtn')?.addEventListener('click', async () => {
+            if (!deferredInstallPrompt) return;
+            deferredInstallPrompt.prompt();
+            try { await deferredInstallPrompt.userChoice; } catch (_) {}
+            deferredInstallPrompt = null;
+            document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+        });
+        document.getElementById('pwaInstallDismiss')?.addEventListener('click', () => {
+            localStorage.setItem(PWA_DISMISS_KEY, '1');
+            document.getElementById('pwaInstallBanner')?.classList.add('hidden');
+        });
+    </script>
+    <script type="module" src="./shell.js"></script>
+</body>
+</html>
