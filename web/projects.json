@@ -37,6 +37,22 @@
         "freq": 80,
         "res": 1
       }
+    },
+    {
+      "id": "magic-bow-tester",
+      "label": "弓弦品質測試",
+      "shortLabel": "弓測",
+      "icon": "activity",
+      "subtitle": "Magic Bow Quality Tester",
+      "description": "導電弓弦三階段測試：基準、拉滿、回復；雷達評分 S–D。",
+      "hardwarePreset": {
+        "message": "弓弦測試需 G0 觸控觸發 + G2 ADC（10k 上拉）。是否自動同步？",
+        "activeMask": 5,
+        "pullupMask": 4,
+        "freq": 100,
+        "res": 1,
+        "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+      }
     }
   ]
 }
