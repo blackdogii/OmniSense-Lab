@@ -68,3 +68,15 @@ Web Bluetooth 字串格式：`0000ffe0-0000-1000-8000-00805f9b34fb` 等。
 - `omnisense-data` — 同上，舊別名相容。
 
 實驗模組應只依賴上述事件，不直接存取 GATT。
+
+## 卡帶式實驗模組（動態載入）
+
+Shell 以動態 `import()` 載入 `experiments/<id>/app.js`（官方）或使用者提供的 **http(s) ES 模組 URL**（自訂）。`web/core/ble.js` 與事件迴圈**不因切換實驗而重設**，連線維持時會持續解析上行封包並派發 `omnisense:data`。
+
+模組建議實作：
+
+- `export async function mount(root)` — 將 UI 掛在 Shell 的 `#view-container`。
+- `export async function unmount()` 或 `cleanup()` — 釋放資源（移除 `omnisense:data` 監聽、`p5.remove()`、關閉 AudioContext／Oscillator 等）。切換實驗或返回列表時 Shell 會擇一呼叫。
+- 可選：`export async function onConnected()` — 在 BLE 已連線時由 Shell 呼叫（例如套用實驗預設腳位）。
+
+`detail.channels` 為 **9 個邏輯通道**（與本文件通道順序一致）；未啟用之通道在 `channels` 中為 `null`。自訂模組若需跨網域載入，伺服器須允許 **CORS**，並以 `Content-Type: application/javascript`（或標準 ES module）提供檔案。

@@ -71,7 +71,28 @@
 
         <nav id="navDesktop" class="hidden md:flex flex-wrap gap-2 mb-6" aria-label="主要導覽"></nav>
 
-        <main id="experiment-root" class="min-h-[50vh]"></main>
+        <main id="experiment-root" class="min-h-[50vh] space-y-4">
+            <div id="view-projects" class="hidden" aria-label="實驗專案列表"></div>
+            <div id="view-custom" class="hidden" aria-label="自訂實驗">
+                <div class="glass-card rounded-xl border border-slate-600/30 p-4 max-w-xl">
+                    <h2 class="text-base font-bold text-slate-100 mb-1">自訂實驗（外部卡帶）</h2>
+                    <p class="text-[11px] text-slate-500 mb-3 leading-relaxed">
+                        貼上可公開存取的 <strong class="text-slate-400">ES 模組</strong> URL（需允許 CORS）。模組須 export <code class="text-cyan-400/90">mount</code>／<code class="text-cyan-400/90">unmount</code> 或 <code class="text-cyan-400/90">cleanup</code>，並監聽 <code class="text-cyan-400/90">omnisense:data</code>（見 <code class="text-slate-500">docs/PROTOCOL.md</code>）。
+                    </p>
+                    <label class="sr-only" for="customModuleUrl">模組 URL</label>
+                    <input type="url" id="customModuleUrl" name="customModuleUrl" inputmode="url" autocomplete="off" placeholder="https://example.com/my-experiment/app.js" class="w-full rounded-lg border border-slate-600 bg-slate-900/80 px-3 py-2.5 text-sm text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-2 focus:ring-cyan-500/40 mb-3">
+                    <button type="button" id="customLaunchBtn" class="w-full sm:w-auto rounded-lg bg-cyan-600 hover:bg-cyan-500 px-5 py-2.5 text-sm font-bold shadow-lg transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/60">啟動實驗</button>
+                </div>
+            </div>
+            <div id="view-experiment-wrap">
+                <div id="experiment-back-bar" class="hidden mb-2 flex items-center gap-2">
+                    <button type="button" id="experimentBackBtn" class="inline-flex items-center gap-1.5 rounded-lg border border-slate-600/60 bg-slate-800/80 px-3 py-2 text-xs font-semibold text-slate-200 hover:bg-slate-700/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/40">
+                        <i data-lucide="arrow-left" class="w-3.5 h-3.5"></i> 返回
+                    </button>
+                </div>
+                <div id="view-container" class="min-h-[50vh]"></div>
+            </div>
+        </main>
     </div>
 
     <nav id="navMobile" class="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-700/80 bg-slate-900/95 backdrop-blur-md pb-[env(safe-area-inset-bottom,0px)]" aria-label="主要導覽">

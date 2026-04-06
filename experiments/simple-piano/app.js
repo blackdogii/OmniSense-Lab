@@ -48,6 +48,7 @@ export async function mount(root) {
 }
 
 export async function onConnected() {
+    if (typeof window !== 'undefined' && window.__omnisenseSkipExperimentDefaultPreset) return;
     await applyPreset();
 }
 

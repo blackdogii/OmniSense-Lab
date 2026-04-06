@@ -83,7 +83,7 @@ function getAnalogModeKey(id) {
 function setModeButtonIcon(modeBtn, id) {
     if (!modeBtn) return;
     const key = getAnalogModeKey(id);
-    modeBtn.innerHTML = `<i data-lucide="${MODE_ICON[key]}" class="w-[18px] h-[18px]"></i>`;
+    modeBtn.innerHTML = `<i data-lucide="${MODE_ICON[key]}" class="w-[14px] h-[14px]"></i>`;
     modeBtn.title = MODE_TITLE[key];
     if (window.lucide) window.lucide.createIcons();
 }
@@ -242,7 +242,7 @@ function syncPinButtonStyle(id, active) {
         : id === G2_ID
           ? 'bg-amber-500 border-amber-400 text-white shadow-md shadow-amber-900/20'
           : 'bg-cyan-500 border-cyan-400 text-white shadow-md shadow-cyan-900/20';
-    btn.className = `pin-btn min-h-[40px] min-w-[2.75rem] px-2.5 rounded-lg border text-[11px] font-bold shrink-0 transition-transform active:scale-95 ${
+    btn.className = `pin-btn min-h-[34px] w-full min-w-0 px-2 rounded-md border text-[10px] font-mono font-bold tabular-nums transition-transform active:scale-[0.98] ${
         active ? colorClass : 'border-slate-600 text-slate-500 bg-slate-800/60'
     }`;
 }
@@ -376,7 +376,7 @@ function detachDataListener() {
 
 function buildAnalogRow(id) {
     const row = document.createElement('div');
-    row.className = 'flex items-center justify-between gap-1.5';
+    row.className = 'grid grid-cols-[1fr_2.25rem] items-center gap-1 min-w-0';
     const activeBtn = document.createElement('button');
     activeBtn.type = 'button';
     activeBtn.id = `btn-${id}`;
@@ -388,7 +388,7 @@ function buildAnalogRow(id) {
     modeBtn.type = 'button';
     modeBtn.id = `mode-${id}`;
     modeBtn.className =
-        'mode-cycle-btn flex items-center justify-center w-10 h-10 rounded-lg border border-slate-600 bg-slate-800/95 text-slate-100 hover:bg-slate-700/80 active:scale-95 transition-transform shrink-0';
+        'mode-cycle-btn flex items-center justify-center w-9 h-9 rounded-md border border-slate-600/90 bg-slate-900/90 text-slate-100 hover:bg-slate-700/90 active:scale-95 transition-transform shrink-0 shadow-sm';
     modeBtn.onclick = () => cycleAnalogMode(id);
     setModeButtonIcon(modeBtn, id);
 
@@ -419,7 +419,7 @@ function initDashboardUi() {
         b.textContent = `G${gpioNum(id)}`;
         b.title = '開啟／關閉（數位）';
         b.className =
-            'pin-btn min-h-[40px] rounded-lg border border-slate-600 text-[11px] font-bold active:scale-95 transition-transform';
+            'pin-btn min-h-[34px] rounded-md border border-slate-600/90 text-[10px] font-mono font-bold tabular-nums px-1 active:scale-[0.98] transition-transform shadow-sm';
         b.onclick = () => togglePin(id);
         dig.appendChild(b);
     });
