@@ -1,7 +1,7 @@
 /**
  * Magic Bow Quality Tester — 導電弓弦品質卡帶
- * G0：觸控（架構上為 0–4095；韌體觸控語意：未觸高、觸摸低）
- * G2：ADC + 板載 10k 上拉；R_ext 可由分壓估算（可選顯示）
+ * G0：觸控（相對落差 + EMA + 遲滯，降低漏判）
+ * G2：ADC；拉弓須在「圓圈倒數」內達到最小形變，避免誤判結束
  */
 
 import { omni } from '../../web/core/state.js';
@@ -13,8 +13,13 @@ const CH_TOUCH = 0;
 const CH_ADC = 2;
 
 const BASELINE_MS = 3000;
-const TOUCH_DEBOUNCE = 4;
-const RELEASE_DROP_FRAC = 0.1;
+/** 拉弓視窗：圓圈由大變小，須於此時間內達到最小拉距 */
+const PULL_WINDOW_MS = 4500;
+/** 判定「有拉弓」之最小解析度（counts）— 未達則不進入放開偵測 */
+const MIN_PULL_DELTA = 100;
+/** 進入 PULL 後至少經過此時間才允許偵測「放箭」（避免雜訊誤判） */
+const MIN_MS_BEFORE_RELEASE_DETECT = 450;
+const RELEASE_DROP_FRAC = 0.12;
 const STABLE_NEED = 14;
 const R_PULLUP_OHMS = 10000;
 
@@ -29,10 +34,32 @@ let styleLink = null;
 let dataHandler = null;
 /** @type {any} */
 let vizP5 = null;
+let rafId = 0;
+let vizLoopRunning = false;
+
+/** G0：指數平滑與「放開時」之高水位，用於相對觸發 */
+let touchEma = 3500;
+let touchIdleHigh = 3800;
+const TOUCH_EMA_ALPHA = 0.14;
+/** 相對落差：超過 max(120, idleHigh * 0.05) 視為按下 */
+const TOUCH_REL_MIN = 120;
+const TOUCH_REL_FRAC = 0.05;
+/** 連續判定：需連續 N 次為「按下」才確認（降低漏判同時防抖） */
+const TOUCH_ON_NEED = 3;
+const TOUCH_OFF_NEED = 2;
+
+let touchOnStreak = 0;
+let touchOffStreak = 0;
+let touchPressed = false;
 
 let phase = 'IDLE';
+/** PULL 子階段: 'window' 圓圈倒數 | 'hold' 已拉滿、可放箭 */
+let pullSub = 'window';
 let phaseStartMs = 0;
-let touchLowStreak = 0;
+/** 進入「可放箭偵測」之時間（pullSub===hold 且已達最小拉距時） */
+let pullHoldStartMs = 0;
+let pullWindowRetries = 0;
+
 let baselineSamples = [];
 let baselineMean = 0;
 let baselineStd = 0;
@@ -70,8 +97,44 @@ function loadP5() {
     });
 }
 
-function touchActive(v) {
-    return v != null && v < omni.touchThreshold;
+function updateTouchFilter(v0) {
+    if (v0 == null) return false;
+    touchEma = (1 - TOUCH_EMA_ALPHA) * touchEma + TOUCH_EMA_ALPHA * v0;
+    if (v0 >= omni.touchThreshold - 80) {
+        touchIdleHigh = Math.max(touchIdleHigh * 0.997 + v0 * 0.003, v0);
+    }
+    const relDrop = touchIdleHigh - touchEma;
+    const relThresh = Math.max(TOUCH_REL_MIN, touchIdleHigh * TOUCH_REL_FRAC);
+    const absPress = v0 < omni.touchThreshold;
+    const relPress = relDrop > relThresh;
+    const rawPress = absPress || relPress;
+
+    if (rawPress) {
+        touchOnStreak++;
+        touchOffStreak = 0;
+    } else {
+        touchOffStreak++;
+        touchOnStreak = 0;
+    }
+
+    if (!touchPressed && touchOnStreak >= TOUCH_ON_NEED) {
+        touchPressed = true;
+        updateTouchDom(true);
+    } else if (touchPressed && touchOffStreak >= TOUCH_OFF_NEED) {
+        touchPressed = false;
+        updateTouchDom(false);
+    }
+    return touchPressed;
+}
+
+function updateTouchDom(pressed) {
+    const ring = rootEl?.querySelector('#mbt-touch-ring');
+    const state = rootEl?.querySelector('#mbt-touch-state');
+    if (ring) ring.classList.toggle('mbt-touch-ring--active', pressed);
+    if (state) {
+        state.textContent = pressed ? 'G0 已觸發' : '等待輕觸 G0';
+        state.classList.toggle('mbt-touch-state--on', pressed);
+    }
 }
 
 function stddev(arr, mean) {
@@ -146,9 +209,27 @@ function computeRadarScores() {
     radarScores = [resN, snrN, recN, driftN];
 }
 
+function startVizLoop() {
+    if (vizLoopRunning) return;
+    vizLoopRunning = true;
+    function tick() {
+        if (!vizLoopRunning) return;
+        vizP5?.redraw();
+        rafId = requestAnimationFrame(tick);
+    }
+    rafId = requestAnimationFrame(tick);
+}
+
+function stopVizLoop() {
+    vizLoopRunning = false;
+    if (rafId) cancelAnimationFrame(rafId);
+    rafId = 0;
+}
+
 function finishTest() {
     if (testFinished) return;
     testFinished = true;
+    stopVizLoop();
     finalResolution = Math.max(0, peakAdc - baselineMean);
     finalRanks.snr = rankLetterNoise(baselineStd);
     finalRanks.resolution = rankLetterResolution(finalResolution);
@@ -199,10 +280,18 @@ function updateDomSummary() {
 }
 
 function resetStateMachine() {
+    stopVizLoop();
     testFinished = false;
     phase = 'IDLE';
+    pullSub = 'window';
     phaseStartMs = performance.now();
-    touchLowStreak = 0;
+    pullHoldStartMs = 0;
+    pullWindowRetries = 0;
+    touchEma = 3500;
+    touchIdleHigh = 3800;
+    touchOnStreak = 0;
+    touchOffStreak = 0;
+    touchPressed = false;
     baselineSamples = [];
     baselineMean = 0;
     baselineStd = 0;
@@ -220,12 +309,14 @@ function resetStateMachine() {
     radarScores = [0, 0, 0, 0];
     const badge = rootEl?.querySelector('#mbt-rank-badge');
     badge?.classList.add('hidden');
+    updateTouchDom(false);
     setPhaseUi(
         'Phase 0 — IDLE',
-        '輕觸 <strong>G0</strong> 開始量測（觸發後請準備保持弓弦靜止）。',
+        '輕觸 <strong>G0</strong> 開始（外圈亮起即為偵測到）。',
         'idle'
     );
     rootEl?.querySelector('#mbt-stats') && (rootEl.querySelector('#mbt-stats').innerHTML = '');
+    startVizLoop();
     vizP5?.redraw();
 }
 
@@ -240,6 +331,20 @@ function setPhaseUi(label, html, key) {
     }
 }
 
+/** 圓圈時間耗盡但未達最小拉距：重開一輪視窗，不結束測試 */
+function restartPullWindow() {
+    pullSub = 'window';
+    phaseStartMs = performance.now();
+    peakAdc = lastAdc;
+    pullHoldStartMs = 0;
+    pullWindowRetries++;
+    setPhaseUi(
+        'Phase 2 — PULL',
+        `倒數內未達最小拉距。請在圓圈消失前拉滿弓弦（重試第 ${pullWindowRetries} 次）。`,
+        'pull'
+    );
+}
+
 function onDataPacket(ev) {
     if (omni.currentViewId !== 'magic-bow-tester') return;
     const ch = ev.detail.channels;
@@ -250,18 +355,16 @@ function onDataPacket(ev) {
         return;
     }
     if (phase === 'DONE') {
-        vizP5?.redraw();
         return;
     }
     const now = performance.now();
 
+    if (v0 != null) updateTouchFilter(v0);
+
     if (phase === 'IDLE') {
-        if (v0 != null && touchActive(v0)) touchLowStreak++;
-        else touchLowStreak = 0;
-        if (touchLowStreak >= TOUCH_DEBOUNCE) {
+        if (touchPressed) {
             phase = 'BASELINE';
             phaseStartMs = now;
-            touchLowStreak = 0;
             baselineSamples = [];
             setPhaseUi(
                 'Phase 1 — BASELINE',
@@ -270,7 +373,7 @@ function onDataPacket(ev) {
             );
         }
     } else if (phase === 'BASELINE') {
-        if (v0 != null && touchActive(v0)) {
+        if (v0 != null && (v0 < omni.touchThreshold || touchPressed)) {
             setPhaseUi(
                 'Phase 1 — BASELINE',
                 '仍偵測到 G0 觸控，請先<strong>放開</strong>以利基準採樣。',
@@ -284,31 +387,54 @@ function onDataPacket(ev) {
                 baselineStd = stddev(baselineSamples, baselineMean);
                 peakAdc = v2;
                 phase = 'PULL';
+                pullSub = 'window';
                 phaseStartMs = now;
+                pullHoldStartMs = 0;
                 setPhaseUi(
                     'Phase 2 — PULL',
-                    '<strong>緩慢拉滿</strong>弓弦至最大形變（右側為功率計）。',
+                    '看著<strong>圓圈由大變小</strong>：在消失前<strong>緩慢拉滿</strong>弓弦（長條圖會上升）。',
                     'pull'
                 );
+                startVizLoop();
             }
         }
     } else if (phase === 'PULL') {
+        const pullDelta = Math.max(0, v2 - baselineMean);
         peakAdc = Math.max(peakAdc, v2);
-        const span = Math.max(30, peakAdc - baselineMean);
-        const dropThresh = peakAdc - RELEASE_DROP_FRAC * span;
-        if (v2 < dropThresh) releaseDropStreak++;
-        else releaseDropStreak = 0;
-        if (releaseDropStreak >= 3) {
-            phase = 'RELEASE';
-            releaseMarkMs = now;
-            releaseDropStreak = 0;
-            stableStreak = 0;
-            postReleaseSamples = [];
-            setPhaseUi(
-                'Phase 3 — RELEASE',
-                '偵測到回彈；量測<strong>恢復時間</strong>與<strong>漂移</strong>…',
-                'release'
-            );
+
+        if (pullSub === 'window') {
+            if (pullDelta >= MIN_PULL_DELTA) {
+                pullSub = 'hold';
+                pullHoldStartMs = now;
+                setPhaseUi(
+                    'Phase 2 — PULL',
+                    '已達標！請<strong>維持拉滿</strong>，準備<strong>放開弓弦</strong>（放箭）。',
+                    'pull'
+                );
+            } else if (now - phaseStartMs >= PULL_WINDOW_MS) {
+                restartPullWindow();
+            }
+        }
+
+        if (pullSub === 'hold') {
+            const span = Math.max(MIN_PULL_DELTA, peakAdc - baselineMean);
+            const dropThresh = peakAdc - RELEASE_DROP_FRAC * span;
+            const canDetectRelease = now - pullHoldStartMs >= MIN_MS_BEFORE_RELEASE_DETECT;
+            if (canDetectRelease && v2 < dropThresh) releaseDropStreak++;
+            else releaseDropStreak = 0;
+
+            if (canDetectRelease && releaseDropStreak >= 4) {
+                phase = 'RELEASE';
+                releaseMarkMs = now;
+                releaseDropStreak = 0;
+                stableStreak = 0;
+                postReleaseSamples = [];
+                setPhaseUi(
+                    'Phase 3 — RELEASE',
+                    '偵測到回彈；量測<strong>恢復時間</strong>與<strong>漂移</strong>…',
+                    'release'
+                );
+            }
         }
     } else if (phase === 'RELEASE') {
         if (testFinished) return;
@@ -340,7 +466,6 @@ function onDataPacket(ev) {
     }
 
     lastAdc = v2;
-    vizP5?.redraw();
 }
 
 function mountP5(host) {
@@ -350,7 +475,7 @@ function mountP5(host) {
 
         p.setup = () => {
             const w = Math.max(280, host.clientWidth || 320);
-            p.createCanvas(w, 300).parent(host);
+            p.createCanvas(w, 340).parent(host);
             p.noLoop();
         };
 
@@ -362,28 +487,67 @@ function mountP5(host) {
             const cylab = 22;
 
             if (phase === 'PULL') {
-                const span = Math.max(400, peakAdc - baselineMean, 1);
-                const cur = lastAdc;
-                const norm = p.constrain((cur - baselineMean) / span, 0, 1);
-                const meterH = 36;
-                const meterY = h * 0.55;
+                const pullDelta = Math.max(0, lastAdc - baselineMean);
+                const spanGoal = Math.max(400, peakAdc - baselineMean, MIN_PULL_DELTA);
+                const norm = p.constrain(pullDelta / spanGoal, 0, 1);
+
+                const barW = w - 56;
+                const barH = 22;
+                const barY = h * 0.22;
                 p.noStroke();
                 p.fill(30, 41, 59);
-                p.rect(28, meterY, w - 56, meterH, 8);
-                const glow = p.lerpColor(p.color(34, 211, 238, 80), p.color(129, 140, 248, 200), norm);
-                p.fill(glow);
-                p.rect(28, meterY, (w - 56) * norm, meterH, 8);
-                p.stroke(34, 211, 238, 120);
+                p.rect(28, barY, barW, barH, 6);
+                const barFill = p.lerpColor(p.color(6, 78, 59), p.color(34, 211, 238), norm);
+                p.fill(barFill);
+                p.rect(28, barY, barW * norm, barH, 6);
+                p.stroke(34, 211, 238, 100);
                 p.noFill();
-                p.rect(28, meterY, w - 56, meterH, 8);
+                p.rect(28, barY, barW, barH, 6);
                 p.fill(226, 232, 240);
                 p.noStroke();
                 p.textAlign(p.CENTER, p.CENTER);
-                p.textSize(13);
-                p.text(`POWER  ${(norm * 100).toFixed(0)}%  ‧  Peak ${Math.round(peakAdc)}`, cx, meterY - 28);
-                p.textSize(11);
-                p.fill(148, 163, 184);
-                p.text(`Δ vs 基準 ≈ ${Math.max(0, cur - baselineMean).toFixed(0)} counts`, cx, meterY + meterH + 18);
+                p.textSize(12);
+                p.text(`拉弓力度（ΔADC） ${pullDelta.toFixed(0)} / 目標 ≥ ${MIN_PULL_DELTA}`, cx, barY - 14);
+
+                if (pullSub === 'window') {
+                    const elapsed = performance.now() - phaseStartMs;
+                    const u = p.constrain(1 - elapsed / PULL_WINDOW_MS, 0, 1);
+                    const rMax = Math.min(w, h) * 0.38;
+                    const r = rMax * (0.2 + 0.8 * u);
+                    p.noFill();
+                    p.stroke(34, 211, 238, 160);
+                    p.strokeWeight(3);
+                    p.circle(cx, h * 0.58, r);
+                    p.stroke(251, 191, 36, 200);
+                    p.strokeWeight(2);
+                    p.circle(cx, h * 0.58, r * 0.92);
+                    p.noStroke();
+                    p.fill(226, 232, 240);
+                    p.textSize(14);
+                    p.text(`圓圈倒數 ${(u * (PULL_WINDOW_MS / 1000)).toFixed(1)} s`, cx, h * 0.58);
+                    p.textSize(11);
+                    p.fill(148, 163, 184);
+                    p.text('消失前請拉滿弓弦', cx, h * 0.58 + 36);
+                } else {
+                    const meterH = 40;
+                    const meterY = h * 0.52;
+                    p.noStroke();
+                    p.fill(30, 41, 59);
+                    p.rect(28, meterY, barW, meterH, 8);
+                    const glow = p.lerpColor(p.color(34, 211, 238, 90), p.color(129, 140, 248, 220), norm);
+                    p.fill(glow);
+                    p.rect(28, meterY, barW * norm, meterH, 8);
+                    p.stroke(34, 211, 238, 130);
+                    p.noFill();
+                    p.rect(28, meterY, barW, meterH, 8);
+                    p.fill(226, 232, 240);
+                    p.noStroke();
+                    p.textSize(13);
+                    p.text(`POWER ${(norm * 100).toFixed(0)}% ‧ Peak ${Math.round(peakAdc)}`, cx, meterY - 18);
+                    p.textSize(11);
+                    p.fill(148, 163, 184);
+                    p.text('維持後放開弓弦（放箭）', cx, meterY + meterH + 16);
+                }
             } else if (phase === 'BASELINE') {
                 const t = (performance.now() - phaseStartMs) / BASELINE_MS;
                 const a = p.constrain(t, 0, 1);
@@ -393,19 +557,17 @@ function mountP5(host) {
                 p.arc(cx, h * 0.48, 100, 100, -p.HALF_PI, -p.HALF_PI + a * p.TWO_PI);
                 p.noStroke();
                 p.fill(226, 232, 240);
-                p.textAlign(p.CENTER);
+                p.textAlign(p.CENTER, p.CENTER);
                 p.textSize(15);
                 p.text(`${Math.ceil((1 - a) * BASELINE_MS / 1000)} s`, cx, h * 0.48 + 6);
                 p.textSize(11);
                 p.fill(100, 116, 139);
-                (() => {
-                    const bs = baselineSamples.slice(-40);
-                    const bm = bs.length ? bs.reduce((s, x) => s + x, 0) / bs.length : 0;
-                    const sig = bs.length > 3 ? stddev(bs, bm).toFixed(2) : '—';
-                    p.text(`σ 即時 ≈ ${sig}`, cx, h * 0.72);
-                })();
+                const bs = baselineSamples.slice(-40);
+                const bm = bs.length ? bs.reduce((s, x) => s + x, 0) / bs.length : 0;
+                const sig = bs.length > 3 ? stddev(bs, bm).toFixed(2) : '—';
+                p.text(`σ 即時 ≈ ${sig}`, cx, h * 0.72);
             } else if (phase === 'DONE') {
-                const r = Math.min(w, h) * 0.32;
+                const r = Math.min(w, h) * 0.3;
                 p.push();
                 p.translate(cx, h * 0.48);
                 p.noFill();
@@ -444,25 +606,27 @@ function mountP5(host) {
                 }
                 p.pop();
                 p.fill(226, 232, 240);
-                p.textAlign(p.CENTER);
+                p.textAlign(p.CENTER, p.CENTER);
                 p.textSize(12);
-                p.text('品質雷達（四維）', cx, 20);
+                p.text('品質雷達（四維）', cx, 18);
+            } else if (phase === 'RELEASE') {
+                p.fill(251, 191, 36);
+                p.textAlign(p.CENTER, p.CENTER);
+                p.textSize(12);
+                p.text('RELEASE / 回復採樣', cx, h * 0.5);
             } else {
                 const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 220);
-                p.fill(34, 211, 238, 100 + 120 * pulse);
+                p.noFill();
+                p.stroke(34, 211, 238, 100 + 100 * pulse);
+                p.strokeWeight(3);
+                p.circle(cx, h * 0.45, 56 + 12 * pulse);
+                p.fill(34, 211, 238, 80 + 90 * pulse);
                 p.noStroke();
-                p.circle(cx, h * 0.45, 18);
+                p.circle(cx, h * 0.45, 22);
                 p.fill(148, 163, 184);
                 p.textSize(12);
                 p.textAlign(p.CENTER, p.CENTER);
-                p.text('G0 觸控待命', cx, h * 0.62);
-            }
-
-            if (phase === 'RELEASE') {
-                p.textAlign(p.CENTER);
-                p.fill(251, 191, 36);
-                p.textSize(12);
-                p.text('RELEASE / 回復採樣', cx, h - 20);
+                p.text('輕觸 G0 開始', cx, h * 0.68);
             }
         };
     }, host);
@@ -489,7 +653,13 @@ function buildDom(root) {
 <div class="mbt-root" id="mbt-root-inner">
   <div class="mbt-header">
     <div class="mbt-title">Magic Bow Quality Tester</div>
-    <p class="mbt-sub">固定韌體 8-byte / 10-byte 設定 · Channel0 觸控觸發 · Channel2 ADC（10k 上拉）· Vout = 3.3×Rext/(10k+Rext)</p>
+    <p class="mbt-sub">G0 觸控：相對落差 + 平滑 · G2 ADC（10k 上拉）· 圓圈內須完成拉弓才會進入放箭</p>
+  </div>
+  <div class="mbt-touch-row" aria-live="polite">
+    <div class="mbt-touch-ring" id="mbt-touch-ring">
+      <span class="mbt-touch-ring-inner">G0</span>
+    </div>
+    <p class="mbt-touch-state" id="mbt-touch-state">等待輕觸 G0</p>
   </div>
   <div class="mbt-phase-card" data-phase="idle">
     <div class="mbt-phase-label" id="mbt-phase-label">Phase 0 — IDLE</div>
@@ -534,6 +704,7 @@ export async function onConnected() {
 }
 
 export async function cleanup() {
+    stopVizLoop();
     window.removeEventListener('omnisense:data', dataHandler);
     dataHandler = null;
     if (vizP5) {

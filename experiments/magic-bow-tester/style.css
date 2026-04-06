@@ -42,6 +42,61 @@
     line-height: 1.4;
 }
 
+.mbt-touch-row {
+    display: flex;
+    align-items: center;
+    gap: 0.85rem;
+    margin-bottom: 0.75rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 0.75rem;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.mbt-touch-ring {
+    flex-shrink: 0;
+    width: 3.25rem;
+    height: 3.25rem;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 3px solid rgba(51, 65, 85, 0.9);
+    background: rgba(15, 23, 42, 0.9);
+    box-shadow: 0 0 0 0 rgba(34, 211, 238, 0);
+    transition: border-color 0.15s, box-shadow 0.2s, transform 0.15s;
+}
+
+.mbt-touch-ring--active {
+    border-color: rgba(34, 211, 238, 0.95);
+    box-shadow:
+        0 0 20px rgba(34, 211, 238, 0.45),
+        0 0 40px rgba(34, 211, 238, 0.2);
+    transform: scale(1.05);
+}
+
+.mbt-touch-ring-inner {
+    font-size: 0.75rem;
+    font-weight: 800;
+    color: var(--mbt-muted);
+    letter-spacing: 0.06em;
+}
+
+.mbt-touch-ring--active .mbt-touch-ring-inner {
+    color: var(--mbt-cyan);
+}
+
+.mbt-touch-state {
+    margin: 0;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--mbt-muted);
+}
+
+.mbt-touch-state--on {
+    color: var(--mbt-cyan);
+}
+
 .mbt-phase-card {
     background: var(--mbt-panel);
     border: 1px solid var(--mbt-border);
@@ -72,7 +127,7 @@
     overflow: hidden;
     border: 1px solid rgba(51, 65, 85, 0.6);
     background: var(--mbt-bg);
-    min-height: 280px;
+    min-height: 340px;
 }
 
 .mbt-canvas-host canvas {
