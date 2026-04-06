@@ -38,31 +38,51 @@
         #toolbarActions button { position: relative; z-index: 40; pointer-events: auto; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
         #pwaInstallBanner { padding-bottom: env(safe-area-inset-bottom, 0px); }
         .pullup-btn.pullup-active { color: #22d3ee; border-color: rgba(34, 211, 238, 0.55); box-shadow: 0 0 10px rgba(34, 211, 238, 0.45); }
+        .nav-tab { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.5rem 0.9rem; border-radius: 0.75rem; font-size: 0.875rem; font-weight: 700; border: 1px solid transparent; transition: background 0.15s, color 0.15s, border-color 0.15s; }
+        .nav-tab:not(.nav-tab-active) { color: #94a3b8; }
+        .nav-tab:not(.nav-tab-active):hover { background: rgba(30, 41, 59, 0.8); color: #e2e8f0; }
+        .nav-tab-active { background: rgba(6, 182, 212, 0.15); color: #22d3ee; border-color: rgba(34, 211, 238, 0.35); }
+        #navMobile .nav-tab { flex: 1; flex-direction: column; justify-content: center; font-size: 0.65rem; padding: 0.5rem 0.25rem; gap: 0.2rem; }
+        #navMobile .nav-tab i { width: 1.35rem; height: 1.35rem; }
     </style>
 </head>
-<body class="p-4 md:p-8 min-h-screen">
-    <div class="max-w-7xl mx-auto">
-        <!-- 頁首 -->
-        <header class="flex flex-col md:flex-row justify-between items-center mb-8 gap-4">
+<body class="min-h-screen bg-[#0f172a] text-slate-100 pb-[5.25rem] md:pb-8">
+    <div class="max-w-7xl mx-auto px-4 md:px-8 pt-4 md:pt-8">
+        <!-- 共用頁首：全視圖共用藍牙按鈕 -->
+        <header id="appHeader" class="flex flex-col md:flex-row justify-between items-center mb-6 md:mb-8 gap-4">
             <div class="flex items-center gap-4">
                 <div class="bg-cyan-500 p-2 rounded-xl shadow-lg shadow-cyan-500/20">
                     <i data-lucide="microscope" class="text-white w-8 h-8"></i>
                 </div>
                 <div>
-                    <h1 class="text-3xl font-black text-cyan-400 tracking-tight">OmniSense Lab</h1>
-                    <p class="text-slate-400 text-xs font-medium uppercase tracking-widest italic">Professional Research Edition</p>
+                    <h1 class="text-2xl md:text-3xl font-black text-cyan-400 tracking-tight">OmniSense Lab</h1>
+                    <p id="headerSubtitle" class="text-slate-400 text-xs font-medium tracking-wide">系統主控台</p>
                 </div>
             </div>
-            <div class="flex gap-3">
-                <button type="button" id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30">
+            <div class="flex gap-3 shrink-0">
+                <button type="button" id="connectBtn" class="flex items-center gap-2 bg-cyan-600 hover:bg-cyan-500 px-5 md:px-6 py-2.5 rounded-full transition-all font-bold shadow-lg shadow-cyan-900/30 text-sm">
                     <i data-lucide="bluetooth"></i> 連結裝置
                 </button>
-                <button type="button" id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-6 py-2.5 rounded-full transition-all font-bold shadow-lg">
+                <button type="button" id="disconnectBtn" class="hidden flex items-center gap-2 bg-rose-600 hover:bg-rose-500 px-5 md:px-6 py-2.5 rounded-full transition-all font-bold shadow-lg text-sm">
                     <i data-lucide="unplug"></i> 斷開
                 </button>
             </div>
         </header>
 
+        <!-- 桌面：頂部導覽 -->
+        <nav id="navDesktop" class="hidden md:flex flex-wrap gap-2 mb-6" aria-label="主要導覽">
+            <button type="button" class="nav-tab nav-tab-active" data-view="dashboard" data-nav>
+                <i data-lucide="layout-dashboard" class="w-4 h-4"></i> 主控台
+            </button>
+            <button type="button" class="nav-tab" data-view="piano" data-nav>
+                <i data-lucide="music" class="w-4 h-4"></i> 七音階電子琴
+            </button>
+            <button type="button" class="nav-tab" data-view="bow" data-nav>
+                <i data-lucide="target" class="w-4 h-4"></i> 魔法弓箭
+            </button>
+        </nav>
+
+        <section id="view-dashboard" class="view-panel" aria-label="系統主控台">
         <div class="grid grid-cols-1 lg:grid-cols-4 gap-8">
             <!-- 側邊欄 -->
             <div class="lg:col-span-1 flex flex-col gap-6">
@@ -156,7 +176,41 @@
                 <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4" id="dataCards"></div>
             </div>
         </div>
+        </section>
+
+        <section id="view-piano" class="hidden view-panel" aria-label="七音階電子琴">
+            <div class="glass-card p-8 md:p-12 rounded-[2rem] shadow-2xl text-center max-w-2xl mx-auto">
+                <i data-lucide="music" class="w-14 h-14 mx-auto mb-4 text-cyan-500/80"></i>
+                <h2 class="text-xl font-bold text-slate-100 mb-2">七音階電子琴</h2>
+                <p class="text-slate-400 text-sm leading-relaxed">此模組 UI 預留中。即時資料已透過 <code class="text-cyan-400/90 text-xs">omnisense-data</code> 全域事件送出，可在此獨立實作琴鍵與音效邏輯。</p>
+                <p class="text-slate-500 text-xs mt-4">進入此視圖時會自動套用預設腳位（GPIO 0–4、8、9 與上拉），無需回主控台手動開關。</p>
+            </div>
+        </section>
+
+        <section id="view-bow" class="hidden view-panel" aria-label="魔法弓箭">
+            <div class="glass-card p-8 md:p-12 rounded-[2rem] shadow-2xl text-center max-w-2xl mx-auto">
+                <i data-lucide="target" class="w-14 h-14 mx-auto mb-4 text-emerald-500/80"></i>
+                <h2 class="text-xl font-bold text-slate-100 mb-2">魔法弓箭</h2>
+                <p class="text-slate-400 text-sm leading-relaxed">此模組 UI 預留中。同樣可訂閱 <code class="text-cyan-400/90 text-xs">omnisense-data</code> 取得多通道資料。</p>
+                <p class="text-slate-500 text-xs mt-4">進入此視圖時會自動啟用 ADC 通道 0–4 與對應上拉，方便應變／張力實驗。</p>
+            </div>
+        </section>
     </div>
+
+    <!-- 手機：底部導覽（大拇指易觸） -->
+    <nav id="navMobile" class="md:hidden fixed bottom-0 left-0 right-0 z-50 border-t border-slate-700/80 bg-slate-900/95 backdrop-blur-md pb-[env(safe-area-inset-bottom,0px)]" aria-label="主要導覽">
+        <div class="flex max-w-lg mx-auto">
+            <button type="button" class="nav-tab nav-tab-active" data-view="dashboard" data-nav>
+                <i data-lucide="layout-dashboard"></i><span>主控台</span>
+            </button>
+            <button type="button" class="nav-tab" data-view="piano" data-nav>
+                <i data-lucide="music"></i><span>電子琴</span>
+            </button>
+            <button type="button" class="nav-tab" data-view="bow" data-nav>
+                <i data-lucide="target"></i><span>弓箭</span>
+            </button>
+        </div>
+    </nav>
 
     <!-- PWA：Chrome 可安裝時由 beforeinstallprompt 顯示（與網址列安裝圖示同源條件） -->
     <div id="pwaInstallBanner" class="fixed bottom-0 left-0 right-0 z-[100] hidden print:hidden" role="region" aria-label="安裝應用程式">
@@ -247,6 +301,20 @@
         let activeMask = 0x0001;
         /** 與韌體預設一致：邏輯 7、8（GPIO20/21）預設上拉；bit 對應 9 通道 */
         let pullupMask = 0x0180;
+        /** 目前視圖：dashboard | piano | bow（切換不影響 BLE） */
+        let currentViewId = 'dashboard';
+
+        const VIEW_META = {
+            dashboard: { subtitle: '系統主控台' },
+            piano: { subtitle: '七音階電子琴' },
+            bow: { subtitle: '魔法弓箭' }
+        };
+        /** 進入實驗視圖時自動套用（並 try apply() 寫入韌體） */
+        const EXPERIMENT_PRESETS = {
+            piano: { activeMask: 0x7f, pullupMask: 0x7f },
+            bow: { activeMask: 0x001f, pullupMask: 0x001f }
+        };
+
         let dataHistory = Array.from({length: 9}, () => []);
         const MAX_HISTORY = 100;
         const MA_WINDOW = 8;
@@ -455,12 +523,14 @@
                 txChar.addEventListener('characteristicvaluechanged', (e) => {
                     const d = unpack(e.target.value);
                     if (!d) return;
+                    const channelSnapshot = Array(9).fill(null);
                     let vIdx = 0;
                     for (let i = 0; i < 9; i++) {
                         if ((d.mask >> i) & 1) {
                             const raw = d.values[vIdx++];
                             const { v: pre, floating } = stabilizeFloatingAnalog(raw, i);
                             const val = channelFilters[i] ? channelFilters[i](pre) : pre;
+                            channelSnapshot[i] = { raw, filtered: val, floating };
                             dataHistory[i].push(val);
                             if (dataHistory[i].length > MAX_HISTORY) dataHistory[i].shift();
                             const el = document.getElementById(`val-${i}`);
@@ -476,6 +546,11 @@
                             }
                         }
                     }
+                    window.dispatchEvent(
+                        new CustomEvent('omnisense-data', {
+                            detail: { ts: d.ts, mask: d.mask, channels: channelSnapshot }
+                        })
+                    );
                 });
                 document.getElementById('connectBtn').classList.add('hidden');
                 document.getElementById('disconnectBtn').classList.remove('hidden');
@@ -512,6 +587,7 @@
                 p.createCanvas(par.offsetWidth, par.offsetHeight).parent(par);
             };
             p.draw = () => {
+                if (currentViewId !== 'dashboard') return;
                 p.background(10, 15, 30);
                 const colors = ['#22d3ee', '#818cf8', '#f59e0b', '#34d399', '#f472b6', '#10b981', '#10b981', '#3b82f6', '#3b82f6'];
                 p.strokeWeight(2.5);
@@ -545,6 +621,63 @@
             setPullupUi(id);
             const si = document.getElementById('syncIndicator');
             if (si) si.innerText = '⚠️ 上拉設定已變更，請按「應用配置」同步';
+        }
+
+        function syncPinUiFromState() {
+            for (let id = 0; id < 9; id++) {
+                const active = (activeMask >> id) & 1;
+                const pc = PINS_CONFIG[id];
+                const colorClass =
+                    pc.type === 'analog'
+                        ? 'bg-cyan-500 border-cyan-400 text-white'
+                        : pc.type === 'support'
+                          ? 'bg-amber-500 border-amber-400 text-white'
+                          : 'bg-emerald-600 border-emerald-500 text-white';
+                const btn = document.getElementById(`btn-${id}`);
+                if (btn) {
+                    btn.className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${active ? colorClass : 'border-slate-700 text-slate-500'}`;
+                }
+                const card = document.getElementById(`card-${id}`);
+                if (card) card.style.opacity = active ? '1' : '0.2';
+                setPullupUi(id);
+            }
+        }
+
+        async function switchView(viewId) {
+            if (!VIEW_META[viewId]) return;
+            currentViewId = viewId;
+            const sub = document.getElementById('headerSubtitle');
+            if (sub) sub.textContent = VIEW_META[viewId].subtitle;
+
+            ['dashboard', 'piano', 'bow'].forEach((vid) => {
+                const sec = document.getElementById(`view-${vid}`);
+                if (!sec) return;
+                const on = vid === viewId;
+                sec.classList.toggle('hidden', !on);
+                if (on) sec.removeAttribute('hidden');
+                else sec.setAttribute('hidden', '');
+            });
+
+            document.querySelectorAll('[data-nav]').forEach((btn) => {
+                btn.classList.toggle('nav-tab-active', btn.dataset.view === viewId);
+            });
+
+            if (viewId === 'piano' || viewId === 'bow') {
+                const pr = EXPERIMENT_PRESETS[viewId];
+                activeMask = pr.activeMask & 0x01ff;
+                pullupMask = pr.pullupMask & 0x01ff;
+                syncPinUiFromState();
+                if (rxChar) {
+                    try {
+                        await apply();
+                        const si = document.getElementById('syncIndicator');
+                        if (si) si.innerText = '⚡ 已套用實驗預設腳位';
+                    } catch (err) {
+                        console.warn(err);
+                    }
+                }
+            }
+            lucide.createIcons();
         }
 
         function initUi() {
@@ -600,6 +733,9 @@
             bind('exportBtn', exportCsv);
             document.getElementById('freqRange').addEventListener('input', (e) => {
                 document.getElementById('freqLabel').innerText = e.target.value;
+            });
+            document.querySelectorAll('[data-nav]').forEach((btn) => {
+                btn.addEventListener('click', () => switchView(btn.dataset.view));
             });
         }
 
