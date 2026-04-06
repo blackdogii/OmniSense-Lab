@@ -5,19 +5,20 @@
 import { omni, PINS_CONFIG, TOUCH_Y_MAX, MA_WINDOW, FLOATING_ADC_IDS } from '../../web/core/state.js';
 import { clearBleQueue, resetFloatingBuffers, setAfterProcessCallback } from '../../web/core/events.js';
 import { u32Delta } from '../../web/core/unpacker.js';
-import { computeTouchModeMask, hasActiveTouchChannel } from '../../web/core/touchMask.js';
+import { computeTouchModeMask } from '../../web/core/touchMask.js';
 import { applyDeviceConfig } from '../../web/core/configApply.js';
 import * as ble from '../../web/core/ble.js';
 
-/** 類比 G0·G1·G3·G4：開啟 + 模式（一般／上拉／觸控） */
 const ANALOG_FOUR_IDS = [0, 1, 3, 4];
-/** 類比 G2：僅類比 */
 const G2_ID = 2;
-/** 數位 G8·G9·G20·G21：內建上拉恆開 */
+/** 具「一般／上拉／觸控」三態的類比腳（含 G2） */
+const ANALOG_MODE_IDS = [0, 1, 2, 3, 4];
 const DIGITAL_IDS = [5, 6, 7, 8];
 const DIGITAL_PULL_BITS = 0x1e0;
 
-/** 與波形、圖例一致：依邏輯通道著色（對應 GPIO 見 PINS_CONFIG） */
+const MODE_ICON = { normal: 'gauge', pullup: 'magnet', touch: 'fingerprint' };
+const MODE_TITLE = { normal: '一般（類比）', pullup: '上拉', touch: '觸控' };
+
 const WAVE_RGB = [
     [34, 211, 238],
     [99, 102, 241],
@@ -73,19 +74,26 @@ function gpioNum(logicalId) {
     return PINS_CONFIG[logicalId].gpio;
 }
 
-/** Analog four: normal=adc 無上拉 → pullup → touch */
-function getAnalogModeLabel(id) {
-    if (omni.channelMode[id] === 'touch') return '觸控';
-    if ((omni.pullupMask >> id) & 1) return '上拉';
-    return '一般';
+function getAnalogModeKey(id) {
+    if (omni.channelMode[id] === 'touch') return 'touch';
+    if ((omni.pullupMask >> id) & 1) return 'pullup';
+    return 'normal';
+}
+
+function setModeButtonIcon(modeBtn, id) {
+    if (!modeBtn) return;
+    const key = getAnalogModeKey(id);
+    modeBtn.innerHTML = `<i data-lucide="${MODE_ICON[key]}" class="w-[18px] h-[18px]"></i>`;
+    modeBtn.title = MODE_TITLE[key];
+    if (window.lucide) window.lucide.createIcons();
 }
 
 function cycleAnalogMode(id) {
-    const g = getAnalogModeLabel(id);
-    if (g === '一般') {
+    const key = getAnalogModeKey(id);
+    if (key === 'normal') {
         omni.channelMode[id] = 'adc';
         omni.pullupMask |= 1 << id;
-    } else if (g === '上拉') {
+    } else if (key === 'pullup') {
         omni.channelMode[id] = 'touch';
         omni.pullupMask |= 1 << id;
     } else {
@@ -94,11 +102,9 @@ function cycleAnalogMode(id) {
     }
     omni.pullupMask &= 0x01ff;
     omni.pullupMask |= DIGITAL_PULL_BITS;
-    const el = document.getElementById(`mode-${id}`);
-    if (el) el.textContent = getAnalogModeLabel(id);
+    setModeButtonIcon(document.getElementById(`mode-${id}`), id);
     updateCardTitles();
     updateWaveTitle();
-    refreshWaveLegend();
     markDirty();
 }
 
@@ -115,16 +121,13 @@ function updateCardTitles() {
         const g = gpioNum(id);
         if (DIGITAL_IDS.includes(id)) {
             t.textContent = `GPIO ${g} · 數位`;
-            u.textContent = '0／4095（上拉）';
-        } else if (id === G2_ID) {
-            t.textContent = `GPIO ${g} · 類比`;
-            u.textContent = '12-bit 類比';
+            u.textContent = '0／4095';
         } else if (omni.channelMode[id] === 'touch') {
             t.textContent = `GPIO ${g} · 觸控`;
-            u.textContent = '類比積分 0–4095';
+            u.textContent = '積分 0–4095';
         } else {
             t.textContent = `GPIO ${g} · 類比`;
-            u.textContent = ((omni.pullupMask >> id) & 1) ? '12-bit（上拉）' : '12-bit 類比';
+            u.textContent = (omni.pullupMask >> id) & 1 ? '12-bit（上拉）' : '12-bit';
         }
     }
 }
@@ -132,23 +135,7 @@ function updateCardTitles() {
 function updateWaveTitle() {
     const el = document.getElementById('waveSectionTitle');
     if (!el) return;
-    el.textContent = hasActiveTouchChannel()
-        ? '即時波形（觸控：0–4095；其餘：ADC／數位）'
-        : '即時感測波形';
-}
-
-function refreshWaveLegend() {
-    const leg = document.getElementById('wave-legend');
-    if (!leg) return;
-    leg.innerHTML = '';
-    for (let i = 0; i < 9; i++) {
-        if (!((omni.activeMask >> i) & 1)) continue;
-        const [r, g, b] = WAVE_RGB[i];
-        const span = document.createElement('span');
-        span.className = 'inline-flex items-center gap-1.5';
-        span.innerHTML = `<span class="inline-block w-2.5 h-2.5 rounded-sm shrink-0" style="background:rgb(${r},${g},${b})"></span><span class="font-mono text-slate-300">G${gpioNum(i)}</span>`;
-        leg.appendChild(span);
-    }
+    el.textContent = '即時感測波形';
 }
 
 function buildCsvText() {
@@ -251,23 +238,31 @@ function syncPinButtonStyle(id, active) {
     if (!btn) return;
     const isDig = DIGITAL_IDS.includes(id);
     const colorClass = isDig
-        ? 'bg-emerald-600 border-emerald-500 text-white'
+        ? 'bg-emerald-600 border-emerald-500 text-white shadow-md shadow-emerald-900/20'
         : id === G2_ID
-          ? 'bg-amber-500 border-amber-400 text-white'
-          : 'bg-cyan-500 border-cyan-400 text-white';
-    btn.className = `pin-btn px-3 py-1.5 rounded-lg border text-[10px] font-bold shrink-0 ${active ? colorClass : 'border-slate-600 text-slate-500 bg-slate-800/50'}`;
+          ? 'bg-amber-500 border-amber-400 text-white shadow-md shadow-amber-900/20'
+          : 'bg-cyan-500 border-cyan-400 text-white shadow-md shadow-cyan-900/20';
+    btn.className = `pin-btn min-h-[44px] min-w-[3rem] px-3 rounded-xl border text-[11px] font-bold shrink-0 transition-transform active:scale-95 ${
+        active ? colorClass : 'border-slate-600 text-slate-500 bg-slate-800/60'
+    }`;
+}
+
+function updateCardVisibility(id) {
+    const card = document.getElementById(`card-${id}`);
+    if (!card) return;
+    const active = (omni.activeMask >> id) & 1;
+    card.classList.toggle('hidden', !active);
 }
 
 function syncPinUiFromState() {
     for (let id = 0; id < 9; id++) {
         const active = (omni.activeMask >> id) & 1;
         syncPinButtonStyle(id, active);
-        const card = document.getElementById(`card-${id}`);
-        if (card) card.style.opacity = active ? '1' : '0.2';
-        const modeBtn = document.getElementById(`mode-${id}`);
-        if (modeBtn) modeBtn.textContent = getAnalogModeLabel(id);
+        updateCardVisibility(id);
+        if (ANALOG_MODE_IDS.includes(id)) {
+            setModeButtonIcon(document.getElementById(`mode-${id}`), id);
+        }
     }
-    refreshWaveLegend();
 }
 
 function togglePin(id) {
@@ -276,14 +271,9 @@ function togglePin(id) {
     if (DIGITAL_IDS.includes(id)) {
         omni.channelMode[id] = 'dig';
     }
-    if (id === G2_ID) {
-        omni.channelMode[id] = 'adc';
-    }
     const active = (omni.activeMask >> id) & 1;
     syncPinButtonStyle(id, active);
-    const card = document.getElementById(`card-${id}`);
-    if (card) card.style.opacity = active ? '1' : '0.2';
-    refreshWaveLegend();
+    updateCardVisibility(id);
     markDirty();
 }
 
@@ -314,17 +304,8 @@ function wireP5() {
             const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;
             let tw = u32Delta(t1, t0);
             if (tw === 0) tw = 1;
-            const plotTop = 36;
-            const plotBottom = p.height - 28;
-            p.noStroke();
-            p.fill(148, 163, 184);
-            p.textSize(10);
-            p.textAlign(p.LEFT, p.TOP);
-            if (hasActiveTouchChannel()) {
-                p.text('Y: 觸控 0–4095 · 其他 0–4095', 6, 6);
-            } else {
-                p.text('Y: 0–4095', 6, 6);
-            }
+            const plotTop = 8;
+            const plotBottom = p.height - 8;
             p.strokeWeight(2);
             for (let i = 0; i < 9; i++) {
                 if (!((omni.activeMask >> i) & 1)) continue;
@@ -333,9 +314,6 @@ function wireP5() {
                 p.noFill();
                 p.beginShape();
                 const yMax = omni.channelMode[i] === 'touch' ? TOUCH_Y_MAX : 4095;
-                let lastX = 0;
-                let lastY = plotBottom;
-                let lastV = null;
                 for (let k = 0; k < packetHistory.length; k++) {
                     const pkt = packetHistory[k];
                     if (pkt.values[i] == null) continue;
@@ -343,20 +321,8 @@ function wireP5() {
                     const x = p.map(dx, 0, tw, 0, p.width);
                     const y = p.map(pkt.values[i], 0, yMax, plotBottom, plotTop);
                     p.vertex(x, y);
-                    lastX = x;
-                    lastY = y;
-                    lastV = pkt.values[i];
                 }
                 p.endShape();
-                if (lastV != null) {
-                    p.noStroke();
-                    p.fill(cr, cg, cb);
-                    p.textAlign(p.LEFT, p.CENTER);
-                    p.textSize(11);
-                    const stagger = (i % 6) * 13 - 32;
-                    const yy = Math.min(Math.max(lastY + stagger, plotTop + 6), plotBottom - 6);
-                    p.text(`G${gpioNum(i)}`, Math.min(lastX + 4, p.width - 44), yy);
-                }
             }
         };
     });
@@ -379,17 +345,19 @@ function attachDataListener() {
         for (let i = 0; i < 9; i++) {
             if (!ch[i]) continue;
             if (lowFps && ((omni.domFrame + i) & 1)) continue;
+            const card = document.getElementById(`card-${i}`);
+            if (card && card.classList.contains('hidden')) continue;
             const el = document.getElementById(`val-${i}`);
             if (el) el.innerText = ch[i].filtered;
             const hint = document.getElementById(`float-hint-${i}`);
             if (!hint) continue;
             if (omni.channelMode[i] === 'touch') {
                 hint.classList.remove('hidden');
-                hint.innerText = '觸控模式';
+                hint.innerText = '觸控';
                 hint.className = 'text-[8px] text-cyan-400/90 mt-1 min-h-[1rem]';
             } else if (FLOATING_ADC_IDS.has(i) && ch[i].floating) {
                 hint.classList.remove('hidden');
-                hint.innerText = '可能懸空（已抑制雜訊）';
+                hint.innerText = '可能懸空';
                 hint.className = 'text-[8px] text-amber-400/90 mt-1 min-h-[1rem]';
             } else {
                 hint.classList.add('hidden');
@@ -406,78 +374,68 @@ function detachDataListener() {
     }
 }
 
+function buildAnalogRow(id) {
+    const row = document.createElement('div');
+    row.className = 'flex items-center justify-between gap-2';
+    const activeBtn = document.createElement('button');
+    activeBtn.type = 'button';
+    activeBtn.id = `btn-${id}`;
+    activeBtn.textContent = `G${gpioNum(id)}`;
+    activeBtn.title = '開啟／關閉';
+    activeBtn.onclick = () => togglePin(id);
+
+    const modeBtn = document.createElement('button');
+    modeBtn.type = 'button';
+    modeBtn.id = `mode-${id}`;
+    modeBtn.className =
+        'mode-cycle-btn flex items-center justify-center w-11 h-11 rounded-xl border border-slate-600 bg-slate-800/95 text-slate-100 hover:bg-slate-700/80 active:scale-95 transition-transform shrink-0';
+    modeBtn.onclick = () => cycleAnalogMode(id);
+    setModeButtonIcon(modeBtn, id);
+
+    row.appendChild(activeBtn);
+    row.appendChild(modeBtn);
+    return row;
+}
+
 function initDashboardUi() {
     omni.pullupMask = (omni.pullupMask & 0x01ff) | DIGITAL_PULL_BITS;
-    omni.channelMode[G2_ID] = 'adc';
     DIGITAL_IDS.forEach((id) => {
         omni.channelMode[id] = 'dig';
     });
 
     const a4 = document.getElementById('pins-analog-four');
     ANALOG_FOUR_IDS.forEach((id) => {
-        const row = document.createElement('div');
-        row.className = 'flex items-center gap-2 flex-wrap';
-        const g = gpioNum(id);
-        const activeBtn = document.createElement('button');
-        activeBtn.type = 'button';
-        activeBtn.id = `btn-${id}`;
-        activeBtn.textContent = `G${g}`;
-        activeBtn.title = '開啟／關閉此通道';
-        activeBtn.onclick = () => togglePin(id);
-
-        const modeBtn = document.createElement('button');
-        modeBtn.type = 'button';
-        modeBtn.id = `mode-${id}`;
-        modeBtn.className =
-            'text-[9px] px-2 py-1 rounded-lg border border-slate-600 bg-slate-800/80 text-slate-200 hover:bg-slate-700 min-w-[3rem]';
-        modeBtn.title = '一般 → 上拉 → 觸控';
-        modeBtn.textContent = getAnalogModeLabel(id);
-        modeBtn.onclick = () => cycleAnalogMode(id);
-
-        row.appendChild(activeBtn);
-        row.appendChild(modeBtn);
-        a4.appendChild(row);
+        a4.appendChild(buildAnalogRow(id));
     });
 
     const g2 = document.getElementById('pins-g2');
-    const row2 = document.createElement('div');
-    row2.className = 'flex items-center gap-2';
-    const b2 = document.createElement('button');
-    b2.type = 'button';
-    b2.id = `btn-${G2_ID}`;
-    b2.textContent = `G${gpioNum(G2_ID)}`;
-    b2.title = '開啟／關閉（僅類比）';
-    b2.onclick = () => togglePin(G2_ID);
-    row2.appendChild(b2);
-    g2.appendChild(row2);
+    g2.appendChild(buildAnalogRow(G2_ID));
 
     const dig = document.getElementById('pins-digital');
     DIGITAL_IDS.forEach((id) => {
-        const row = document.createElement('div');
-        row.className = 'flex items-center gap-2';
         const b = document.createElement('button');
         b.type = 'button';
         b.id = `btn-${id}`;
         b.textContent = `G${gpioNum(id)}`;
-        b.title = '開啟／關閉（數位，上拉恆開）';
+        b.title = '開啟／關閉（數位）';
+        b.className =
+            'pin-btn min-h-[44px] rounded-xl border border-slate-600 text-[11px] font-bold active:scale-95 transition-transform';
         b.onclick = () => togglePin(id);
-        row.appendChild(b);
-        dig.appendChild(row);
+        dig.appendChild(b);
     });
 
+    const cards = document.getElementById('dataCards');
     for (let id = 0; id < 9; id++) {
-        const cards = document.getElementById('dataCards');
         const c = document.createElement('div');
         c.id = `card-${id}`;
-        c.className = `glass-card p-4 rounded-2xl transition-all ${id === 0 ? '' : 'opacity-20'}`;
-        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black text-slate-500 uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
+        c.className = 'glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all';
+        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black text-slate-500 uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-xl sm:text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
         cards.appendChild(c);
     }
 
     syncPinUiFromState();
     updateCardTitles();
     updateWaveTitle();
-    refreshWaveLegend();
     if (window.lucide) window.lucide.createIcons();
     rebuildChannelFilters();
     document.getElementById('filterSelect').onchange = () => {
