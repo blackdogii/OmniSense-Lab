@@ -242,7 +242,7 @@ function syncPinButtonStyle(id, active) {
         : id === G2_ID
           ? 'bg-amber-500 border-amber-400 text-white shadow-md shadow-amber-900/20'
           : 'bg-cyan-500 border-cyan-400 text-white shadow-md shadow-cyan-900/20';
-    btn.className = `pin-btn min-h-[44px] min-w-[3rem] px-3 rounded-xl border text-[11px] font-bold shrink-0 transition-transform active:scale-95 ${
+    btn.className = `pin-btn min-h-[40px] min-w-[2.75rem] px-2.5 rounded-lg border text-[11px] font-bold shrink-0 transition-transform active:scale-95 ${
         active ? colorClass : 'border-slate-600 text-slate-500 bg-slate-800/60'
     }`;
 }
@@ -376,7 +376,7 @@ function detachDataListener() {
 
 function buildAnalogRow(id) {
     const row = document.createElement('div');
-    row.className = 'flex items-center justify-between gap-2';
+    row.className = 'flex items-center justify-between gap-1.5';
     const activeBtn = document.createElement('button');
     activeBtn.type = 'button';
     activeBtn.id = `btn-${id}`;
@@ -388,7 +388,7 @@ function buildAnalogRow(id) {
     modeBtn.type = 'button';
     modeBtn.id = `mode-${id}`;
     modeBtn.className =
-        'mode-cycle-btn flex items-center justify-center w-11 h-11 rounded-xl border border-slate-600 bg-slate-800/95 text-slate-100 hover:bg-slate-700/80 active:scale-95 transition-transform shrink-0';
+        'mode-cycle-btn flex items-center justify-center w-10 h-10 rounded-lg border border-slate-600 bg-slate-800/95 text-slate-100 hover:bg-slate-700/80 active:scale-95 transition-transform shrink-0';
     modeBtn.onclick = () => cycleAnalogMode(id);
     setModeButtonIcon(modeBtn, id);
 
@@ -419,7 +419,7 @@ function initDashboardUi() {
         b.textContent = `G${gpioNum(id)}`;
         b.title = '開啟／關閉（數位）';
         b.className =
-            'pin-btn min-h-[44px] rounded-xl border border-slate-600 text-[11px] font-bold active:scale-95 transition-transform';
+            'pin-btn min-h-[40px] rounded-lg border border-slate-600 text-[11px] font-bold active:scale-95 transition-transform';
         b.onclick = () => togglePin(id);
         dig.appendChild(b);
     });

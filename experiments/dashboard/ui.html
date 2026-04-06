@@ -1,71 +1,71 @@
-<div class="grid grid-cols-1 lg:grid-cols-4 gap-4 lg:gap-8">
-    <div class="lg:col-span-1 flex flex-col gap-4 min-w-0">
-        <div class="glass-card p-4 sm:p-5 rounded-2xl sm:rounded-3xl shadow-2xl">
-            <div class="flex items-center gap-2 mb-3 border-b border-slate-700/50 pb-2">
-                <i data-lucide="cpu" class="w-4 h-4 text-cyan-400 shrink-0"></i>
-                <h2 class="text-sm font-bold text-slate-200">腳位診斷</h2>
+<div class="grid grid-cols-1 lg:grid-cols-4 gap-3 lg:gap-6">
+    <div class="lg:col-span-1 flex flex-col gap-3 min-w-0">
+        <div class="glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-xl border border-white/[0.06]">
+            <div class="flex items-center gap-1.5 mb-2 pb-1.5 border-b border-slate-700/50">
+                <i data-lucide="cpu" class="w-3.5 h-3.5 text-cyan-400 shrink-0"></i>
+                <h2 class="text-xs font-bold text-slate-200 tracking-tight">腳位診斷</h2>
             </div>
-            <p class="text-[9px] text-slate-500 mb-3 flex flex-wrap items-center gap-x-2 gap-y-1">
-                <span class="inline-flex items-center gap-1"><i data-lucide="gauge" class="w-3.5 h-3.5 text-slate-400"></i>一般</span>
+            <p class="text-[8px] text-slate-500 mb-2 leading-tight flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                <span class="inline-flex items-center gap-0.5"><i data-lucide="gauge" class="w-3 h-3 text-slate-500"></i>一般</span>
                 <span class="text-slate-600">·</span>
-                <span class="inline-flex items-center gap-1"><i data-lucide="magnet" class="w-3.5 h-3.5 text-slate-400"></i>上拉</span>
+                <span class="inline-flex items-center gap-0.5"><i data-lucide="magnet" class="w-3 h-3 text-slate-500"></i>上拉</span>
                 <span class="text-slate-600">·</span>
-                <span class="inline-flex items-center gap-1"><i data-lucide="fingerprint" class="w-3.5 h-3.5 text-slate-400"></i>觸控</span>
+                <span class="inline-flex items-center gap-0.5"><i data-lucide="fingerprint" class="w-3 h-3 text-slate-500"></i>觸控</span>
             </p>
-            <div class="mb-4">
-                <p class="text-[10px] font-bold text-cyan-500 uppercase mb-2">類比 G0·G1·G3·G4</p>
-                <div id="pins-analog-four" class="flex flex-col gap-2"></div>
+            <div class="mb-2.5">
+                <p class="text-[9px] font-semibold text-cyan-400/95 mb-1">類比</p>
+                <div id="pins-analog-four" class="flex flex-col gap-1.5"></div>
             </div>
-            <div class="mb-4 border-t border-slate-700/50 pt-3">
-                <p class="text-[10px] font-bold text-amber-500 uppercase mb-2">類比 G2</p>
+            <div class="mb-2.5 border-t border-slate-700/40 pt-2">
+                <p class="text-[9px] font-semibold text-amber-400/95 mb-1">支援（上拉 10kΩ）</p>
                 <div id="pins-g2"></div>
             </div>
-            <div class="border-t border-slate-700/50 pt-3">
-                <p class="text-[10px] font-bold text-emerald-500 uppercase mb-2">數位 G8·G9·G20·G21</p>
-                <p class="text-[9px] text-slate-500 mb-2">內建上拉恆開</p>
-                <div id="pins-digital" class="grid grid-cols-2 gap-2"></div>
+            <div class="border-t border-slate-700/40 pt-2">
+                <p class="text-[9px] font-semibold text-emerald-400/95 mb-1">數位</p>
+                <p class="text-[8px] text-slate-500 mb-1 leading-snug">內建弱上拉恆開</p>
+                <div id="pins-digital" class="grid grid-cols-2 gap-1.5"></div>
             </div>
         </div>
-        <div class="glass-card p-4 sm:p-5 rounded-2xl sm:rounded-3xl shadow-2xl space-y-4">
+        <div class="glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl shadow-xl border border-white/[0.06] space-y-3">
             <div>
-                <label class="text-xs font-bold text-slate-400">取樣 <span id="freqLabel" class="text-cyan-400 font-mono">50</span> Hz</label>
-                <input type="range" id="freqRange" min="10" max="200" value="50" class="w-full mt-2 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                <label class="text-[11px] font-semibold text-slate-400">取樣 <span id="freqLabel" class="text-cyan-400 font-mono tabular-nums">50</span> Hz</label>
+                <input type="range" id="freqRange" min="10" max="200" value="50" class="w-full mt-1.5 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
             </div>
             <div>
-                <label class="text-xs font-bold text-slate-400 mb-1.5 block">解析度</label>
-                <select id="resSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
-                    <option value="0">8-bit</option>
-                    <option value="1" selected>12-bit</option>
-                    <option value="2">16-bit</option>
+                <label class="text-[11px] font-semibold text-slate-400 mb-1 block">資料解析度</label>
+                <select id="resSelect" class="w-full bg-slate-800/90 border border-slate-600/80 rounded-lg px-2.5 py-2 text-[13px] text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/40">
+                    <option value="0">8-bit（高速數位）</option>
+                    <option value="1" selected>12-bit（標準實驗）</option>
+                    <option value="2">16-bit（精密分析）</option>
                 </select>
             </div>
             <div>
-                <label class="text-xs font-bold text-slate-400 mb-1.5 block">濾波（類比）</label>
-                <select id="filterSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-2.5 text-sm outline-none focus:ring-2 focus:ring-cyan-500">
+                <label class="text-[11px] font-semibold text-slate-400 mb-1 block">濾波（類比）</label>
+                <select id="filterSelect" class="w-full bg-slate-800/90 border border-slate-600/80 rounded-lg px-2.5 py-2 text-[13px] text-slate-100 outline-none focus:ring-2 focus:ring-cyan-500/50 focus:border-cyan-500/40">
                     <option value="none">無</option>
                     <option value="ma">移動平均</option>
                     <option value="kalman" selected>卡爾曼</option>
                 </select>
             </div>
-            <button type="button" id="applyBtn" class="w-full py-3.5 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-xl font-black text-sm uppercase shadow-lg active:scale-[0.98] transition-transform">
+            <button type="button" id="applyBtn" class="w-full py-3 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-lg text-sm font-bold tracking-wide shadow-md active:scale-[0.98] transition-transform focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80">
                 應用配置
             </button>
         </div>
     </div>
-    <div class="lg:col-span-3 space-y-4 min-w-0">
-        <div class="glass-card p-4 sm:p-6 rounded-2xl sm:rounded-[2rem] shadow-2xl">
-            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
+    <div class="lg:col-span-3 space-y-3 min-w-0">
+        <div class="glass-card p-3 sm:p-5 rounded-xl sm:rounded-2xl shadow-xl border border-white/[0.06]">
+            <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-2">
                 <div class="flex items-center gap-2">
-                    <i data-lucide="line-chart" class="text-cyan-400 w-5 h-5"></i>
-                    <h2 id="waveSectionTitle" class="text-lg sm:text-xl font-bold">即時感測波形</h2>
+                    <i data-lucide="line-chart" class="text-cyan-400 w-[18px] h-[18px] shrink-0"></i>
+                    <h2 id="waveSectionTitle" class="text-base sm:text-lg font-bold text-slate-100">即時感測波形</h2>
                 </div>
                 <div id="toolbarActions" class="flex gap-2">
-                    <button type="button" id="clearBtn" class="text-[10px] font-bold bg-slate-700/50 px-3 py-2 rounded-xl hover:bg-slate-700 min-h-[40px]">清除</button>
-                    <button type="button" id="exportBtn" class="text-[10px] font-bold bg-emerald-600/80 px-3 py-2 rounded-xl hover:bg-emerald-600 min-h-[40px]">導出 CSV</button>
+                    <button type="button" id="clearBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50">清除</button>
+                    <button type="button" id="exportBtn" class="text-[10px] font-semibold bg-emerald-600/85 px-3 py-2 rounded-lg hover:bg-emerald-500 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">導出 CSV</button>
                 </div>
             </div>
-            <div id="canvasParent" class="canvas-container w-full aspect-[16/10] sm:aspect-[21/9] bg-slate-950 rounded-xl border border-slate-800 overflow-hidden"></div>
+            <div id="canvasParent" class="canvas-container w-full aspect-[16/10] sm:aspect-[21/9] bg-slate-950 rounded-lg border border-slate-800/80 overflow-hidden"></div>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2 sm:gap-3" id="dataCards"></div>
+        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2" id="dataCards"></div>
     </div>
 </div>
