@@ -1,9 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 作者：小威老師
- * 說明：CommandHandler 實作。
- * 硬體：ESP32-C3
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — CommandHandler 實作
+ * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #include "CommandHandler.h"
 #include "Config.h"

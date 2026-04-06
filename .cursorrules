@@ -1,9 +1,7 @@
 <!--
-  專案：OmniSense Lab
-  作者：小威老師
-  說明：Cursor AI 開發規範（韌體／Web／協定邊界）。
-  硬體：ESP32-C3
-  授權：見 LICENSE
+  OmniSense Lab — Cursor AI 開發規範（韌體／Web／協定）
+  目前釋出對齊：0.2.2 · 版本規則：docs/VERSIONING.md
+  作者：小威老師 · 授權：見 LICENSE
 -->
 
 # OmniSense Lab - Cursor AI 開發規範

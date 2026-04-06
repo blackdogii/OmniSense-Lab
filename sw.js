@@ -1,10 +1,9 @@
 /**
- * 專案：OmniSense Lab
- * 作者：小威老師
- * 說明：PWA Service Worker，快取離線資源。
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — Service Worker（離線快取）
+ * 對應釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
-const CACHE_NAME = 'omnisense-lab-v6';
+const CACHE_NAME = 'omnisense-lab-v0.2.2';
 const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',

@@ -1,10 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 作者：小威老師
- * 說明：SensorEngine 類別宣告。
- * 版本：見 Config.h 之 OMNISENSE_VERSION（x.y.z）；更新韌體時請一併遞增 y 並同步網頁 z。
- * 硬體：ESP32-C3（採樣由 esp_timer 週期觸發，時間戳為 micros()）
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — SensorEngine
+ * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #ifndef SENSOR_ENGINE_H
 #define SENSOR_ENGINE_H

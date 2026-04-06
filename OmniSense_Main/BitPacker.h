@@ -1,10 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 作者：小威老師
- * 說明：BLE 上行封包打包（標頭、mask、時間戳、樣本、checksum）。
- * 版本：見 Config.h 之 OMNISENSE_VERSION（x.y.z）。
- * 硬體：ESP32-C3
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — BitPacker（BLE 上行封包）
+ * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #ifndef BIT_PACKER_H
 #define BIT_PACKER_H

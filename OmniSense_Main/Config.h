@@ -1,18 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 說明：韌體全域設定（整合版：解決 iPhone 掃描並補回遺失常數）
- *
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- * 版本（字串格式 x.y.z，與倉庫根目錄 index.html 內 OMNISENSE_WEB_VERSION 必須完全一致）
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
- *   x — 板級／產品代號。測試板為 0；是否改為 1、2… 由您決定。
- *   y — 韌體修訂（本資料夾 OmniSense_Main 內 .ino / .cpp / 韌體用 .h）：
- *       每次「發布一版韌體」並修改上述檔案時，將 y 加 1，並更新下方 OMNISENSE_VERSION。
- *   z — 網頁／軟體修訂（index.html、sw.js、manifest 等瀏覽器端）：
- *       每次「發布一版網頁」並修改上述檔案時，將 z 加 1，並更新下方 OMNISENSE_VERSION。
- * 僅改韌體時：y+1。僅改網頁時：z+1。同一次釋出若兩邊都改，則 y 與 z 都 +1。
- * 更新步驟：調整 OMNISENSE_VER_X / _FW / _WEB 與字串 → 同步改 index.html → 燒錄／部署。
- * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * OmniSense Lab — 韌體全域設定（BLE、腳位、協定常數、版本常數）
+ * 目前釋出：OMNISENSE_VERSION = 0.2.2（與 index.html 之 OMNISENSE_WEB_VERSION 須一致）
+ * 版本遞增規則：見倉庫 docs/VERSIONING.md
  */
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -26,27 +15,22 @@
 
 #define BLE_DEVICE_NAME "Omni01"
 
-/** x：測試板 = 0（由您決定是否遞增） */
 #define OMNISENSE_VER_X   0
-/** y：韌體修訂，每次韌體釋出 +1 */
 #define OMNISENSE_VER_FW  2
-/** z：網頁修訂，每次網頁釋出 +1 */
 #define OMNISENSE_VER_WEB 2
 
-/** 完整版本字串（務必與 index.html 之 OMNISENSE_WEB_VERSION 相同） */
 #define OMNISENSE_VERSION    "0.2.2"
 #define OMNISENSE_FW_VERSION OMNISENSE_VERSION
 
-/**
- * 16-bit 對齊碼：高 8 bits = y，低 8 bits = z（x 僅在字串中；除錯／firmwareVersionField）
- */
+/** 與韌體／網頁修訂對應之 16-bit 碼（細節見 docs/VERSIONING.md） */
 #define OMNISENSE_VERSION_CODE (((uint16_t)(OMNISENSE_VER_FW) << 8) | (uint16_t)(OMNISENSE_VER_WEB))
 
 /**
  * 類比積分觸控：放電後上拉固定時間再 analogRead（0–4095）；非 ADC 腳位則以上升時間換算為 0–4095。
  */
 #define TOUCH_DISCHARGE_US     50u
-#define TOUCH_CHARGE_DWELL_US  15u
+/** 固定充電時間後再取樣；過短時 ADC 易飽和或雜訊大（可再調） */
+#define TOUCH_CHARGE_DWELL_US  28u
 
 // --- 通訊協定常數 (補回遺失定義) ---
 #define PACKET_HEADER 0xAA

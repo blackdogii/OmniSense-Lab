@@ -1,10 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 檔案：OmniSense_Main.ino
- * 作者：小威老師
- * 說明：ESP32-C3 BLE 感測中樞；採樣時間戳固定為 micros()；CMD_SET_CONFIG 10B 含 touchModeMask。
- * 版本：見 Config.h（x.y.z），更新韌體時遞增 y 並同步 index.html 之 z 與字串。
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — 主程式（ESP32-C3 BLE）
+ * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #include <BLEDevice.h>
 #include <BLEServer.h>
@@ -72,7 +69,7 @@ class MyMsgCallbacks: public BLECharacteristicCallbacks {
 
 void setup() {
     Serial.begin(115200);
-    Serial.printf("OmniSense Lab %s (code 0x%04X, y=%u z=%u)\n", OMNISENSE_FW_VERSION,
+    Serial.printf("OmniSense Lab %s (0x%04X, FW=%u WEB=%u)\n", OMNISENSE_FW_VERSION,
                   (unsigned)OMNISENSE_VERSION_CODE, (unsigned)OMNISENSE_VER_FW, (unsigned)OMNISENSE_VER_WEB);
     SensorEngine::init();
 

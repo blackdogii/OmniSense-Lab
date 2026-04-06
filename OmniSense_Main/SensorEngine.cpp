@@ -1,10 +1,7 @@
 /*
- * 專案：OmniSense Lab
- * 作者：小威老師
- * 說明：多通道取樣由 esp_timer 週期觸發；時間戳為 micros()；ADC 上拉可於每次讀取後以 gpio_pullup_en 強制維持。
- *       多頻道觸控：依 touchModeMask 位元遍歷（無 switch 單腳限制）；類比積分法（ADC 腳）或上升時間換算 0–4095（非 ADC 腳）。
- * 硬體：ESP32-C3（ADC 衰減、GPIO 模式）
- * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
+ * OmniSense Lab — SensorEngine（esp_timer 採樣、觸控類比積分／計時換算）
+ * 目前釋出：0.2.2（見 Config.h、docs/VERSIONING.md）
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #include "SensorEngine.h"
 #include "Config.h"
@@ -60,6 +57,9 @@ uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
         delayMicroseconds(TOUCH_DISCHARGE_US);
         pinMode(gpioPin, INPUT_PULLUP);
         delayMicroseconds(TOUCH_CHARGE_DWELL_US);
+        /* Arduino-ESP32 3.x oneshot ADC：接腳／衰減就緒後捨棄首筆再讀 */
+        analogSetPinAttenuation(gpioPin, ADC_11db);
+        (void)analogRead(gpioPin);
         int r = analogRead(gpioPin);
         if (r < 0) {
             r = 0;
