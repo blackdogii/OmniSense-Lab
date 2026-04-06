@@ -2,7 +2,8 @@
 <!--
   專案：OmniSense Lab
   作者：小威老師
-  說明：Web Bluetooth 主控台、p5.js 波形、CSV 匯出、懸空偵測與濾波（對應 ESP32-C3 韌體協定）。
+  說明：Web Bluetooth 主控台、p5.js 波形、CSV、軟體觸控（對應 ESP32-C3 韌體協定）。
+  版本：腳本內 OMNISENSE_WEB_VERSION 須與 OmniSense_Main/Config.h 之 OMNISENSE_FW_VERSION 一致。
   授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
 -->
 <html lang="zh-TW">
@@ -57,6 +58,7 @@
                 <div>
                     <h1 class="text-2xl md:text-3xl font-black text-cyan-400 tracking-tight">OmniSense Lab</h1>
                     <p id="headerSubtitle" class="text-slate-400 text-xs font-medium tracking-wide">系統主控台</p>
+                    <p id="appVersion" class="text-slate-500 text-[10px] font-mono mt-1 tracking-tight"></p>
                 </div>
             </div>
             <div class="flex gap-3 shrink-0">
@@ -79,9 +81,6 @@
             </button>
             <button type="button" class="nav-tab" data-view="bow" data-nav>
                 <i data-lucide="target" class="w-4 h-4"></i> 魔法弓箭
-            </button>
-            <button type="button" class="nav-tab" data-view="touch" data-nav>
-                <i data-lucide="fingerprint" class="w-4 h-4"></i> 電容觸控測試
             </button>
         </nav>
 
@@ -122,35 +121,6 @@
                     </div>
                 </div>
 
-                <!-- 電容觸控實驗（僅在「電容觸控測試」模式顯示） -->
-                <div id="touchModePanel" class="glass-card p-6 rounded-3xl shadow-2xl hidden" aria-hidden="true">
-                    <div class="flex items-center gap-2 mb-4 border-b border-slate-700/50 pb-3">
-                        <i data-lucide="fingerprint" class="w-4 h-4 text-cyan-400"></i>
-                        <h2 class="text-sm font-bold text-slate-200">軟體觸控（RC 充電時間）</h2>
-                    </div>
-                    <p class="text-[10px] text-slate-500 leading-relaxed mb-4">使用內建約 45kΩ 上拉；以放電→上拉充電時間（µs）偵測觸碰。時間戳協定固定為裝置 <code class="text-cyan-500/90">micros()</code>。</p>
-                    <label class="text-xs font-bold text-slate-400 block mb-1">感測腳位（單一邏輯通道）</label>
-                    <select id="touchPinSelect" class="w-full bg-slate-800 border border-slate-700 rounded-xl p-3 text-sm focus:ring-2 focus:ring-cyan-500 outline-none">
-                        <option value="0">CH0 (GPIO0)</option>
-                        <option value="1">CH1 (GPIO1)</option>
-                        <option value="2">CH2 (GPIO2)</option>
-                        <option value="3">CH3 (GPIO3)</option>
-                        <option value="4">CH4 (GPIO4)</option>
-                        <option value="5">CH5 (GPIO8)</option>
-                        <option value="6">CH6 (GPIO9)</option>
-                        <option value="7">CH7 (GPIO20)</option>
-                        <option value="8">CH8 (GPIO21)</option>
-                    </select>
-                    <div class="mt-5">
-                        <label class="text-xs font-bold text-slate-400">觸發閾值（µs 以上視為觸碰）</label>
-                        <div class="flex items-center gap-3 mt-2">
-                            <input type="range" id="touchThresholdRange" min="30" max="6000" value="450" class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
-                            <span id="touchThresholdLabel" class="text-cyan-400 font-mono text-sm w-14 text-right">450</span>
-                        </div>
-                    </div>
-                    <p id="touchDetectHint" class="text-[10px] text-slate-500 mt-3 min-h-[1rem]"></p>
-                </div>
-
                 <!-- 配置面板 -->
                 <div class="glass-card p-6 rounded-3xl shadow-2xl space-y-6">
                     <div>
@@ -176,7 +146,16 @@
                             <option value="ma">移動平均（窗長 8）</option>
                             <option value="kalman" selected>卡爾曼（1D，預設 Q/R）</option>
                         </select>
-                        <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位輸入通道維持原始 0／4095，不套用濾波。</p>
+                        <p class="text-[10px] text-slate-500 mt-2 leading-relaxed">數位輸入通道維持原始 0／4095，不套用濾波。觸控模式通道不套用上述濾波。</p>
+                    </div>
+
+                    <div class="border-t border-slate-700/50 pt-4">
+                        <label class="text-xs font-bold text-slate-400 block mb-2">觸控判定閾值 <code class="text-cyan-500/90">touchThreshold</code>（µs）</label>
+                        <p class="text-[10px] text-slate-500 mb-2">供實驗模組（如電子琴）判斷是否觸發；僅網頁端使用，不寫入韌體。</p>
+                        <div class="flex items-center gap-3">
+                            <input type="range" id="touchThresholdRange" min="30" max="6000" value="450" class="flex-1 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer">
+                            <span id="touchThresholdLabel" class="text-cyan-400 font-mono text-sm w-14 text-right">450</span>
+                        </div>
                     </div>
 
                     <button type="button" id="applyBtn" class="w-full py-4 bg-gradient-to-r from-cyan-600 to-blue-600 hover:from-cyan-500 hover:to-blue-500 rounded-2xl font-black text-sm uppercase transition-all shadow-xl active:scale-95">
@@ -240,9 +219,6 @@
             </button>
             <button type="button" class="nav-tab" data-view="bow" data-nav>
                 <i data-lucide="target"></i><span>弓箭</span>
-            </button>
-            <button type="button" class="nav-tab" data-view="touch" data-nav>
-                <i data-lucide="fingerprint"></i><span>觸控</span>
             </button>
         </div>
     </nav>
@@ -336,17 +312,22 @@
         let activeMask = 0x0001;
         /** 與韌體預設一致：邏輯 7、8（GPIO20/21）預設上拉；bit 對應 9 通道 */
         let pullupMask = 0x0180;
-        /** 目前視圖：dashboard | touch | piano | bow（切換不影響 BLE） */
-        let currentViewId = 'dashboard';
-        /** 電容觸控模式：感測邏輯通道與觸發閾值（µs） */
-        let touchSensePin = 0;
-        let touchThresholdUs = 450;
+        /** 與 OmniSense_Main/Config.h 內 OMNISENSE_FW_VERSION 對齊 */
+        const OMNISENSE_WEB_VERSION = '1.4.0';
 
-        const CMD_SET_TOUCH_CAP = 0x05;
+        /** 目前視圖：dashboard | piano | bow（切換不影響 BLE） */
+        let currentViewId = 'dashboard';
+        /**
+         * 各邏輯通道量測模式（與韌體 touchModeMask 同步）：adc | dig | touch
+         * 單一觸控：同一時間僅允許一腳為 touch，與教學「單腳位軟體觸控」一致。
+         */
+        let channelMode = PINS_CONFIG.map((pc) => (pc.type === 'digital' ? 'dig' : 'adc'));
+        /** 觸發實驗動作之閾值（µs）；全域供 omnisense-data／電子琴等模組讀取 */
+        let touchThreshold = 450;
+        window.touchThreshold = touchThreshold;
 
         const VIEW_META = {
             dashboard: { subtitle: '系統主控台' },
-            touch: { subtitle: '電容觸控測試' },
             piano: { subtitle: '七音階電子琴' },
             bow: { subtitle: '魔法弓箭' }
         };
@@ -435,9 +416,16 @@
             });
         }
 
-        async function sendTouchCapCommand(logicalCh) {
-            if (!rxChar) return;
-            await rxChar.writeValue(new Uint8Array([CMD_SET_TOUCH_CAP, logicalCh & 0xff]));
+        function computeTouchModeMask() {
+            let m = 0;
+            for (let i = 0; i < 9; i++) {
+                if (channelMode[i] === 'touch' && (activeMask >> i) & 1) m |= 1 << i;
+            }
+            return m & 0x01ff;
+        }
+
+        function hasActiveTouchChannel() {
+            return (computeTouchModeMask() & activeMask & 0x01ff) !== 0;
         }
 
         function touchModeYMax() {
@@ -445,33 +433,39 @@
             for (let pi = 0; pi < packetHistory.length; pi++) {
                 const pkt = packetHistory[pi];
                 for (let i = 0; i < 9; i++) {
+                    if (channelMode[i] !== 'touch') continue;
                     if (pkt.values[i] != null) m = Math.max(m, pkt.values[i]);
                 }
             }
             return Math.min(12000, Math.max(400, Math.ceil(m * 1.15)));
         }
 
-        function applyTouchUiMode(isTouch) {
-            const panel = document.getElementById('touchModePanel');
-            const waveTitle = document.getElementById('waveSectionTitle');
-            if (panel) {
-                panel.classList.toggle('hidden', !isTouch);
-                panel.setAttribute('aria-hidden', isTouch ? 'false' : 'true');
-            }
-            if (waveTitle) {
-                waveTitle.textContent = isTouch ? '充電時間波形（µs）' : '即時感測波形';
-            }
+        function updateCardTitles() {
             for (let id = 0; id < 9; id++) {
                 const t = document.getElementById(`card-title-${id}`);
                 const u = document.getElementById(`card-unit-${id}`);
                 if (!t || !u) continue;
-                if (isTouch && id === touchSensePin) {
-                    t.textContent = '充電時間';
-                    u.textContent = 'µs（韌體 7 點中位數）';
+                const g = PINS_CONFIG[id].gpio;
+                if (channelMode[id] === 'touch') {
+                    t.textContent = `GPIO ${g} · 觸控`;
+                    u.textContent = 'Charge Time (μs)';
+                } else if (channelMode[id] === 'dig') {
+                    t.textContent = `GPIO ${g}`;
+                    u.textContent = '數位 0／4095';
                 } else {
-                    t.textContent = `GPIO ${PINS_CONFIG[id].gpio}`;
-                    u.textContent = '12-bit／數位';
+                    t.textContent = `GPIO ${g}`;
+                    u.textContent = '12-bit 類比';
                 }
+            }
+        }
+
+        function updateWaveTitle() {
+            const el = document.getElementById('waveSectionTitle');
+            if (!el) return;
+            if (hasActiveTouchChannel()) {
+                el.textContent = '即時波形（觸控：Charge Time (μs)；其餘：ADC）';
+            } else {
+                el.textContent = '即時感測波形';
             }
         }
 
@@ -512,11 +506,10 @@
 
                 const channelSnapshot = Array(9).fill(null);
                 let vIdx = 0;
-                const touchLab = currentViewId === 'touch';
                 for (let i = 0; i < 9; i++) {
                     if ((d.mask >> i) & 1) {
                         const rawV = d.values[vIdx++];
-                        if (touchLab && i === touchSensePin) {
+                        if (channelMode[i] === 'touch') {
                             channelSnapshot[i] = { raw: rawV, filtered: rawV, floating: false };
                         } else {
                             const { v: pre, floating } = stabilizeFloatingAnalog(rawV, i);
@@ -535,7 +528,7 @@
 
                 domFrame++;
                 const lowFps = measuredFps < 30;
-                const updateDom = currentViewId === 'dashboard' || currentViewId === 'touch';
+                const updateDom = currentViewId === 'dashboard';
                 if (updateDom) {
                     for (let i = 0; i < 9; i++) {
                         if (!channelSnapshot[i]) continue;
@@ -544,10 +537,10 @@
                         if (el) el.innerText = channelSnapshot[i].filtered;
                         const hint = document.getElementById(`float-hint-${i}`);
                         if (hint) {
-                            if (currentViewId === 'touch' && i === touchSensePin) {
+                            if (channelMode[i] === 'touch') {
                                 hint.classList.remove('hidden');
-                                const hit = channelSnapshot[i].filtered >= touchThresholdUs;
-                                hint.innerText = hit ? '● 超過閾值（判定觸碰）' : '○ 未達閾值';
+                                const hit = channelSnapshot[i].filtered >= touchThreshold;
+                                hint.innerText = hit ? '● ≥ touchThreshold（觸發）' : '○ 未達閾值';
                                 hint.className = hit
                                     ? 'text-[8px] text-emerald-400/95 mt-1 min-h-[1rem]'
                                     : 'text-[8px] text-slate-500 mt-1 min-h-[1rem]';
@@ -560,19 +553,18 @@
                             }
                         }
                     }
-                    const th = document.getElementById('touchDetectHint');
-                    if (th && currentViewId === 'touch' && channelSnapshot[touchSensePin]) {
-                        const v = channelSnapshot[touchSensePin].filtered;
-                        th.textContent =
-                            v >= touchThresholdUs
-                                ? `判定：觸碰（${v} ≥ ${touchThresholdUs} µs）`
-                                : `判定：未觸碰（${v} < ${touchThresholdUs} µs）`;
-                    }
                 }
 
                 window.dispatchEvent(
                     new CustomEvent('omnisense-data', {
-                        detail: { ts: d.ts, tsUs: d.ts, mask: d.mask, channels: channelSnapshot }
+                        detail: {
+                            ts: d.ts,
+                            tsUs: d.ts,
+                            mask: d.mask,
+                            channels: channelSnapshot,
+                            channelMode: [...channelMode],
+                            touchThreshold
+                        }
                     })
                 );
             }
@@ -588,7 +580,7 @@
                 fpsLastTick = t;
             }
             processBleQueue();
-            if (omniP5 && (currentViewId === 'dashboard' || currentViewId === 'touch')) omniP5.redraw();
+            if (omniP5 && currentViewId === 'dashboard') omniP5.redraw();
         }
 
         function clearWaveform(ev) {
@@ -714,9 +706,7 @@
                 document.getElementById('connectBtn').classList.add('hidden');
                 document.getElementById('disconnectBtn').classList.remove('hidden');
                 document.getElementById('syncIndicator').innerText = '✅ 裝置已就緒';
-                if (currentViewId === 'touch') {
-                    await applyTouchHardwareFromUi();
-                }
+                await apply();
             } catch (e) {
                 console.log(e);
             }
@@ -728,6 +718,7 @@
             const r = parseInt(document.getElementById('resSelect').value, 10);
             const am = activeMask & 0x01ff;
             const pu = pullupMask & 0x01ff;
+            const tm = computeTouchModeMask();
             const buf = new Uint8Array([
                 0x01,
                 (am >> 8) & 0xff,
@@ -736,10 +727,13 @@
                 pu & 0xff,
                 (f >> 8) & 0xff,
                 f & 0xff,
-                r & 0xff
+                r & 0xff,
+                (tm >> 8) & 0xff,
+                tm & 0xff
             ]);
             await rxChar.writeValue(buf);
-            document.getElementById('syncIndicator').innerText = '⚡ 同步完成';
+            document.getElementById('syncIndicator').innerText = '⚡ 同步完成（含 touchModeMask）';
+            updateWaveTitle();
         }
 
         // --- 5. 圖表繪製（Canvas only；時間軸為封包內 micros()；以 noLoop + RAF redraw）---
@@ -757,10 +751,20 @@
                 const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;
                 let tw = u32Delta(t1, t0);
                 if (tw === 0) tw = 1;
-                const yMax = currentViewId === 'touch' ? touchModeYMax() : 4095;
-                if (currentViewId === 'touch' && ((activeMask >> touchSensePin) & 1)) {
-                    const yThr = p.map(touchThresholdUs, 0, yMax, p.height - 30, 30);
-                    p.stroke(148, 163, 184, 90);
+                const yT = touchModeYMax();
+                p.noStroke();
+                p.fill(148, 163, 184);
+                p.textSize(11);
+                p.textAlign(p.LEFT, p.TOP);
+                if (hasActiveTouchChannel()) {
+                    p.text('Y: Charge Time (μs) — 觸控通道', 6, 8);
+                    p.text('Y: 0–4095 — 類比／數位通道', 6, 22);
+                } else {
+                    p.text('Y: ADC / 數位 (0–4095)', 6, 8);
+                }
+                if (hasActiveTouchChannel()) {
+                    const yThr = p.map(touchThreshold, 0, yT, p.height - 30, 30);
+                    p.stroke(148, 163, 184, 100);
                     p.strokeWeight(1);
                     p.line(0, yThr, p.width, yThr);
                 }
@@ -771,6 +775,7 @@
                     p.stroke(colors[i]);
                     p.noFill();
                     p.beginShape();
+                    const yMax = channelMode[i] === 'touch' ? yT : 4095;
                     for (let k = 0; k < packetHistory.length; k++) {
                         const pkt = packetHistory[k];
                         if (pkt.values[i] == null) continue;
@@ -825,29 +830,14 @@
             }
         }
 
-        async function applyTouchHardwareFromUi() {
-            const sel = document.getElementById('touchPinSelect');
-            const rng = document.getElementById('touchThresholdRange');
-            if (sel) touchSensePin = parseInt(sel.value, 10) || 0;
-            if (rng) {
-                touchThresholdUs = parseInt(rng.value, 10) || 450;
-                const lab = document.getElementById('touchThresholdLabel');
-                if (lab) lab.textContent = String(touchThresholdUs);
+        function resetChannelModesToDefaults() {
+            channelMode = PINS_CONFIG.map((pc) => (pc.type === 'digital' ? 'dig' : 'adc'));
+            for (let id = 0; id < 9; id++) {
+                const sel = document.getElementById(`mode-${id}`);
+                if (sel) sel.value = channelMode[id];
             }
-            activeMask = (1 << touchSensePin) & 0x01ff;
-            pullupMask |= (1 << touchSensePin);
-            pullupMask &= 0x01ff;
-            syncPinUiFromState();
-            applyTouchUiMode(true);
-            if (!rxChar) return;
-            try {
-                await sendTouchCapCommand(touchSensePin);
-                await apply();
-                const si = document.getElementById('syncIndicator');
-                if (si) si.innerText = '⚡ 已啟用軟體觸控（韌體 micros 時間戳）';
-            } catch (err) {
-                console.warn(err);
-            }
+            updateCardTitles();
+            updateWaveTitle();
         }
 
         async function switchView(viewId) {
@@ -856,7 +846,7 @@
             const sub = document.getElementById('headerSubtitle');
             if (sub) sub.textContent = VIEW_META[viewId].subtitle;
 
-            const showDash = viewId === 'dashboard' || viewId === 'touch';
+            const showDash = viewId === 'dashboard';
             const secDash = document.getElementById('view-dashboard');
             if (secDash) {
                 secDash.classList.toggle('hidden', !showDash);
@@ -877,19 +867,8 @@
             });
 
             try {
-                if (viewId === 'dashboard') {
-                    applyTouchUiMode(false);
-                    if (rxChar) {
-                        await sendTouchCapCommand(0xff);
-                        await apply();
-                        const si = document.getElementById('syncIndicator');
-                        if (si) si.innerText = '已回到一般採樣（觸控模式已關閉）';
-                    }
-                } else if (viewId === 'touch') {
-                    await applyTouchHardwareFromUi();
-                } else if (viewId === 'piano' || viewId === 'bow') {
-                    applyTouchUiMode(false);
-                    if (rxChar) await sendTouchCapCommand(0xff);
+                if (viewId === 'piano' || viewId === 'bow') {
+                    resetChannelModesToDefaults();
                     const pr = EXPERIMENT_PRESETS[viewId];
                     activeMask = pr.activeMask & 0x01ff;
                     pullupMask = pr.pullupMask & 0x01ff;
@@ -905,17 +884,25 @@
             }
 
             if (omniP5) {
-                if (viewId === 'dashboard' || viewId === 'touch') omniP5.redraw();
+                if (viewId === 'dashboard') omniP5.redraw();
                 else omniP5.noLoop();
             }
             lucide.createIcons();
         }
 
         function initUi() {
+            const verEl = document.getElementById('appVersion');
+            if (verEl) {
+                verEl.textContent = `Web ${OMNISENSE_WEB_VERSION} · FW ${OMNISENSE_WEB_VERSION}`;
+            }
+
             PINS_CONFIG.forEach((p) => {
                 const group = document.getElementById(`group-${p.type}`);
                 const row = document.createElement('div');
-                row.className = 'flex items-center gap-1 justify-center flex-wrap';
+                row.className = 'flex flex-col gap-1 items-stretch';
+
+                const top = document.createElement('div');
+                top.className = 'flex items-center gap-1 justify-center flex-wrap';
 
                 const btn = document.createElement('button');
                 btn.type = 'button';
@@ -923,7 +910,7 @@
                 btn.innerHTML = `<span class="opacity-40">G</span>${p.gpio}`;
                 btn.className = `pin-btn p-2 rounded-xl border text-[10px] font-bold ${p.id === 0 ? 'bg-cyan-500 border-cyan-400' : 'border-slate-700 text-slate-500'}`;
                 btn.onclick = () => toggle(p.id);
-                row.appendChild(btn);
+                top.appendChild(btn);
 
                 const pbtn = document.createElement('button');
                 pbtn.type = 'button';
@@ -934,7 +921,40 @@
                 pbtn.setAttribute('aria-label', `GPIO ${p.gpio} 內部上拉`);
                 pbtn.innerHTML = '<i data-lucide="magnet" class="w-3.5 h-3.5"></i>';
                 pbtn.addEventListener('click', (e) => togglePullup(p.id, e));
-                row.appendChild(pbtn);
+                top.appendChild(pbtn);
+                row.appendChild(top);
+
+                const modeSel = document.createElement('select');
+                modeSel.id = `mode-${p.id}`;
+                modeSel.className =
+                    'w-full text-[9px] bg-slate-800 border border-slate-600 rounded-lg py-1 px-1';
+                modeSel.title = '量測模式（觸控需同步至韌體）';
+                modeSel.innerHTML =
+                    '<option value="adc">類比</option><option value="dig">數位</option><option value="touch">觸控</option>';
+                modeSel.value = channelMode[p.id];
+                modeSel.addEventListener('change', () => {
+                    let v = modeSel.value;
+                    if (v === 'touch') {
+                        for (let j = 0; j < 9; j++) {
+                            if (j !== p.id && channelMode[j] === 'touch') {
+                                channelMode[j] = PINS_CONFIG[j].type === 'digital' ? 'dig' : 'adc';
+                                const oj = document.getElementById(`mode-${j}`);
+                                if (oj) oj.value = channelMode[j];
+                            }
+                        }
+                    }
+                    channelMode[p.id] = v;
+                    if (v === 'touch') {
+                        pullupMask |= 1 << p.id;
+                        pullupMask &= 0x01ff;
+                        setPullupUi(p.id);
+                    }
+                    updateCardTitles();
+                    updateWaveTitle();
+                    const si = document.getElementById('syncIndicator');
+                    if (si) si.innerText = '⚠️ 模式已變更，請按「應用配置」';
+                });
+                row.appendChild(modeSel);
 
                 group.appendChild(row);
                 setPullupUi(p.id);
@@ -946,6 +966,8 @@
                 c.innerHTML = `<p id="card-title-${p.id}" class="text-[9px] font-black text-slate-500 uppercase">GPIO ${p.gpio}</p><p id="val-${p.id}" class="text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${p.id}" class="text-[8px] text-slate-600 mt-0.5">12-bit／數位</p><p id="float-hint-${p.id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
                 cards.appendChild(c);
             });
+            updateCardTitles();
+            updateWaveTitle();
             lucide.createIcons();
             rebuildChannelFilters();
             document.getElementById('filterSelect').onchange = () => {
@@ -965,18 +987,13 @@
             document.getElementById('freqRange').addEventListener('input', (e) => {
                 document.getElementById('freqLabel').innerText = e.target.value;
             });
-            const tSel = document.getElementById('touchPinSelect');
             const tRng = document.getElementById('touchThresholdRange');
-            if (tSel) {
-                tSel.addEventListener('change', () => {
-                    if (currentViewId === 'touch') applyTouchHardwareFromUi();
-                });
-            }
             if (tRng) {
                 tRng.addEventListener('input', () => {
-                    touchThresholdUs = parseInt(tRng.value, 10) || 450;
+                    touchThreshold = parseInt(tRng.value, 10) || 450;
+                    window.touchThreshold = touchThreshold;
                     const lab = document.getElementById('touchThresholdLabel');
-                    if (lab) lab.textContent = String(touchThresholdUs);
+                    if (lab) lab.textContent = String(touchThreshold);
                 });
             }
             document.querySelectorAll('[data-nav]').forEach((btn) => {

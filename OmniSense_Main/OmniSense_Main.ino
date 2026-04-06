@@ -2,7 +2,7 @@
  * 專案：OmniSense Lab
  * 檔案：OmniSense_Main.ino
  * 作者：小威老師
- * 說明：ESP32-C3 BLE 感測中樞；採樣時間戳固定為 micros()；下行指令見 Config.h（含 CMD_SET_TOUCH_CAP）。
+ * 說明：ESP32-C3 BLE 感測中樞；採樣時間戳固定為 micros()；CMD_SET_CONFIG 10B 含 touchModeMask。
  * 授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
  */
 #include <BLEDevice.h>
@@ -15,8 +15,8 @@
 #include "CommandHandler.h"
 #include "SensorEngine.h"
 
-/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）；touchLogicalChannel=0xFF 表示非軟體觸控模式 */
-SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true, 0xFF};
+/* 預設：通道 0 啟用；上拉預設 GPIO20/21（邏輯 7、8）；touchModeMask=0 */
+SystemConfig g_sysConfig = {0x0001, 0x0180, 100, BIT_12, true, 0};
 BLECharacteristic *pTxChar;
 bool isConnected = false;
 
@@ -71,6 +71,7 @@ class MyMsgCallbacks: public BLECharacteristicCallbacks {
 
 void setup() {
     Serial.begin(115200);
+    Serial.printf("OmniSense Lab FW %s\n", OMNISENSE_FW_VERSION);
     SensorEngine::init();
 
     BLEDevice::init(BLE_DEVICE_NAME);

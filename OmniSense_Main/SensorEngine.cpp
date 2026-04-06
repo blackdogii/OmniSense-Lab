@@ -21,9 +21,9 @@ static uint32_t s_tsUs = 0;
 static volatile bool s_pending = false;
 static portMUX_TYPE s_mux = portMUX_INITIALIZER_UNLOCKED;
 
-/** 觸控通道專用：7 點中位數（滑動窗） */
-static uint16_t s_touchWin[7];
-static uint8_t s_touchFill = 0;
+/** 各邏輯通道觸控：7 點中位數（滑動窗） */
+static uint16_t s_touchWin[MAX_CHANNELS][7];
+static uint8_t s_touchFill[MAX_CHANNELS];
 
 static int physicalPinFromLogical(int logical) {
     if (logical < 0 || logical >= MAX_CHANNELS) return -1;
@@ -31,16 +31,21 @@ static int physicalPinFromLogical(int logical) {
     return DIGITAL_PINS[logical - NUM_ADC_CHANNELS];
 }
 
-static uint16_t touchMedianPush(uint16_t v) {
-    if (s_touchFill < 7) {
-        s_touchWin[s_touchFill++] = v;
+static uint16_t touchMedianPushCh(int ch, uint16_t v) {
+    if (ch < 0 || ch >= MAX_CHANNELS) {
+        return v;
+    }
+    uint16_t* w = s_touchWin[ch];
+    uint8_t& f = s_touchFill[ch];
+    if (f < 7) {
+        w[f++] = v;
     } else {
-        memmove(s_touchWin, s_touchWin + 1, 6 * sizeof(uint16_t));
-        s_touchWin[6] = v;
+        memmove(w, w + 1, 6 * sizeof(uint16_t));
+        w[6] = v;
     }
     uint16_t b[7];
-    const uint8_t n = s_touchFill;
-    memcpy(b, s_touchWin, n * sizeof(uint16_t));
+    const uint8_t n = f;
+    memcpy(b, w, n * sizeof(uint16_t));
     std::sort(b, b + n);
     return b[n / 2];
 }
@@ -65,7 +70,7 @@ uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
 }
 
 void SensorEngine::resetTouchMedian() {
-    s_touchFill = 0;
+    memset(s_touchFill, 0, sizeof(s_touchFill));
     memset(s_touchWin, 0, sizeof(s_touchWin));
 }
 
@@ -80,11 +85,11 @@ static void sensorTimerCb(void* /*arg*/) {
 
     for (int i = 0; i < MAX_CHANNELS; i++) {
         if ((g_sysConfig.activeMask >> i) & 0x01) {
-            if (g_sysConfig.touchLogicalChannel != 0xFF &&
-                static_cast<int>(g_sysConfig.touchLogicalChannel) == i) {
+            if ((g_sysConfig.touchModeMask >> i) & 1) {
                 const int pin = physicalPinFromLogical(i);
                 if (pin >= 0) {
-                    const uint16_t med = touchMedianPush(SensorEngine::readSoftwareTouch(static_cast<uint8_t>(pin)));
+                    const uint16_t med = touchMedianPushCh(
+                        i, SensorEngine::readSoftwareTouch(static_cast<uint8_t>(pin)));
                     tmp[cnt++] = med;
                     if ((g_sysConfig.pullupMask >> i) & 1) {
                         gpio_pullup_en(static_cast<gpio_num_t>(pin));
