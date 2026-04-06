@@ -3,7 +3,7 @@
   專案：OmniSense Lab
   作者：小威老師
   說明：Web Bluetooth 主控台、p5.js 波形、CSV、軟體觸控（對應 ESP32-C3 韌體協定）。
-  版本：OMNISENSE_WEB_VERSION、OMNISENSE_VERSION_CODE 須與 Config.h 之 OMNISENSE_VERSION／OMNISENSE_VERSION_CODE／SystemConfig.firmwareVersionField 一致。
+  版本 x.y.z：與 Config.h 完全一致（x 板級、y 韌體、z 網頁）；請同步更新 OMNISENSE_VER_* 與字串。
   授權：見儲存庫 LICENSE（學術／非商業免費；商業須另行授權）
 -->
 <html lang="zh-TW">
@@ -312,9 +312,15 @@
         let activeMask = 0x0001;
         /** 與韌體預設一致：邏輯 7、8（GPIO20/21）預設上拉；bit 對應 9 通道 */
         let pullupMask = 0x0180;
-        /** 與 Config.h 之 OMNISENSE_VERSION／OMNISENSE_VERSION_CODE 對齊 */
-        const OMNISENSE_WEB_VERSION = '1.5.0';
-        const OMNISENSE_VERSION_CODE = 0x0150;
+        /**
+         * 版本 x.y.z（與 OmniSense_Main/Config.h 必須一致）
+         * x：板級（測試板 0）；y：韌體修訂；z：網頁修訂。僅改韌體時 y+1；僅改網頁時 z+1；兩邊都改則 y、z 各 +1。
+         */
+        const OMNISENSE_VER_X = 0;
+        const OMNISENSE_VER_FW = 1;
+        const OMNISENSE_VER_WEB = 1;
+        const OMNISENSE_WEB_VERSION = `${OMNISENSE_VER_X}.${OMNISENSE_VER_FW}.${OMNISENSE_VER_WEB}`;
+        const OMNISENSE_VERSION_CODE = (OMNISENSE_VER_FW << 8) | OMNISENSE_VER_WEB;
 
         /** 目前視圖：dashboard | piano | bow（切換不影響 BLE） */
         let currentViewId = 'dashboard';
@@ -897,7 +903,7 @@
         function initUi() {
             const verEl = document.getElementById('appVersion');
             if (verEl) {
-                verEl.textContent = `Web ${OMNISENSE_WEB_VERSION} · FW ${OMNISENSE_WEB_VERSION} · 0x${OMNISENSE_VERSION_CODE.toString(
+                verEl.textContent = `版本 ${OMNISENSE_WEB_VERSION}（x/y/z ${OMNISENSE_VER_X}/${OMNISENSE_VER_FW}/${OMNISENSE_VER_WEB}）· 0x${OMNISENSE_VERSION_CODE.toString(
                     16
                 ).toUpperCase()}`;
             }

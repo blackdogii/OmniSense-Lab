@@ -1,6 +1,18 @@
 /*
  * 專案：OmniSense Lab
  * 說明：韌體全域設定（整合版：解決 iPhone 掃描並補回遺失常數）
+ *
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ * 版本（字串格式 x.y.z，與倉庫根目錄 index.html 內 OMNISENSE_WEB_VERSION 必須完全一致）
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ *   x — 板級／產品代號。測試板為 0；是否改為 1、2… 由您決定。
+ *   y — 韌體修訂（本資料夾 OmniSense_Main 內 .ino / .cpp / 韌體用 .h）：
+ *       每次「發布一版韌體」並修改上述檔案時，將 y 加 1，並更新下方 OMNISENSE_VERSION。
+ *   z — 網頁／軟體修訂（index.html、sw.js、manifest 等瀏覽器端）：
+ *       每次「發布一版網頁」並修改上述檔案時，將 z 加 1，並更新下方 OMNISENSE_VERSION。
+ * 僅改韌體時：y+1。僅改網頁時：z+1。同一次釋出若兩邊都改，則 y 與 z 都 +1。
+ * 更新步驟：調整 OMNISENSE_VER_X / _FW / _WEB 與字串 → 同步改 index.html → 燒錄／部署。
+ * ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
  */
 #ifndef CONFIG_H
 #define CONFIG_H
@@ -14,13 +26,21 @@
 
 #define BLE_DEVICE_NAME "Omni01"
 
+/** x：測試板 = 0（由您決定是否遞增） */
+#define OMNISENSE_VER_X   0
+/** y：韌體修訂，每次韌體釋出 +1 */
+#define OMNISENSE_VER_FW  1
+/** z：網頁修訂，每次網頁釋出 +1 */
+#define OMNISENSE_VER_WEB 1
+
+/** 完整版本字串（務必與 index.html 之 OMNISENSE_WEB_VERSION 相同） */
+#define OMNISENSE_VERSION    "0.1.1"
+#define OMNISENSE_FW_VERSION OMNISENSE_VERSION
+
 /**
- * 版本（字串）：與 index.html 內 OMNISENSE_WEB_VERSION 必須一致。
- * 版本欄位（數值）：寫入 SystemConfig.firmwareVersionField，例 0x0150 → v1.5.0。
+ * 16-bit 對齊碼：高 8 bits = y，低 8 bits = z（x 僅在字串中；除錯／firmwareVersionField）
  */
-#define OMNISENSE_VERSION       "1.5.0"
-#define OMNISENSE_FW_VERSION    OMNISENSE_VERSION
-#define OMNISENSE_VERSION_CODE  0x0150u
+#define OMNISENSE_VERSION_CODE (((uint16_t)(OMNISENSE_VER_FW) << 8) | (uint16_t)(OMNISENSE_VER_WEB))
 
 /** 軟體觸控：1ms 內充放電循環計次；可選 ADC 判斷充電完成（約 0.8V @ 12-bit） */
 #ifndef OMNISENSE_TOUCH_ANALOG_CHARGE
@@ -60,7 +80,7 @@ struct SystemConfig {
     bool isRunning;
     /** bit0..8：該邏輯通道為軟體觸控（計次分數 0–1000，經中位數濾波後填入 payload） */
     uint16_t touchModeMask;
-    /** 韌體版本欄位（與 OMNISENSE_VERSION_CODE 一致，僅供除錯／對齊） */
+    /** 與 OMNISENSE_VERSION_CODE（y 高八位、z 低八位）一致，僅供除錯／對齊 */
     uint16_t firmwareVersionField;
 };
 
