@@ -1,12 +1,14 @@
 /*
- * OmniSense Lab — SensorEngine（雙 ADC 腳位電荷轉移觸控實作）
+ * OmniSense Lab — SensorEngine（CPU 週期計數與快速 ADC 整合版）
  * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
- * 授權：見倉庫 LICENSE
+ * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
  #include "SensorEngine.h"
  #include "Config.h"
  #include "driver/gpio.h"
  #include "esp_timer.h"
+ #include "esp_cpu.h"        // 引入 CPU 計時器
+ #include "soc/gpio_reg.h"   // 引入寄存器直接存取
  #include <algorithm>
  #include <cstring>
  
@@ -35,77 +37,64 @@
      return false;
  }
  
- /** * 自動尋找一個與感測腳位不同的 ADC 腳位，作為電荷分享的 VDD_PIN 
+ /**
+  * 核心觸控量測：根據腳位特性選擇最佳演算法
+  * 1. ADC 腳位：利用 analogRead 初始化的微小延遲讀取充電斜率
+  * 2. 數位腳位：利用 160MHz CPU 週期精確計時 RC 充放電
   */
- static int getVddPinFor(int currentPin) {
-     for (int i = 0; i < NUM_ADC_CHANNELS; i++) {
-         if (ADC_PINS[i] != currentPin) return ADC_PINS[i];
-     }
-     return ADC_PINS[0]; // 預設安全退路
- }
- 
- /** * 數位腳位的備用計時法 (若誤選數位腳位為觸控的退路) 
-  */
- static uint16_t touchRiseTimeTo4095(uint32_t dtUs) {
-     const uint32_t capUs = 5000u;
-     if (dtUs > capUs) dtUs = capUs;
-     uint32_t sub = (dtUs * 4095u) / capUs;
-     if (sub > 4095u) sub = 4095u;
-     return static_cast<uint16_t>(4095u - sub);
- }
- 
  uint16_t SensorEngine::readSoftwareTouch(uint8_t gpioPin) {
      if (gpioIsAdcCapable(gpioPin)) {
-         // ========== 核心演算法：雙腳位電荷轉移 ==========
-         
-         int vddPin = getVddPinFor(gpioPin);
-         
-         // 將 VDD_PIN 設定為內部上拉（提供高電位充電）
-         pinMode(vddPin, INPUT_PULLUP);
-         // 將 TOUCH_PIN 設定為內部下拉（提供放電路徑與基礎電位）
-         pinMode(gpioPin, INPUT_PULLDOWN);
-         
-         // 為了維持系統穩定與 BLE 傳輸，這裡採用 30 次迴圈，
-         // 並依靠 OmniSense 外部的 7 點中位數濾波來達到等同 100 次的雜訊抑制效果。
-         const int ITERATIONS = 30; 
-         uint32_t sum = 0;
-         
-         for (int i = 0; i < ITERATIONS; i++) {
-             // 1. 空讀取 (Dummy Read)：對 VDD_PIN 執行 2 次 analogRead
-             // 目的是切換 ADC 多工器，並將 ADC 內部的 12pF 採樣電容充飽至 3.3V
-             analogRead(vddPin);
-             analogRead(vddPin);
-             
-             // 2. 量測放電：瞬間切換到 TOUCH_PIN
-             // 內部電容的電荷會與 TOUCH_PIN 的寄生電容（包含人體）分享。
-             // 人體碰觸時電容變大，量測到的電壓值會因此降低。
-             sum += analogRead(gpioPin);
-         }
-         
-         // 恢復腳位狀態，避免影響其他可能正在進行 ADC 採樣的通道
-         pinMode(vddPin, INPUT);
-         pinMode(gpioPin, INPUT);
-         
-         // 回傳算術平均值
-         return (uint16_t)(sum / ITERATIONS);
-         
-     } else {
-         // ========== 數位腳位備用方案 ==========
+         // --- 方法 A: ADC 電荷分享/斜率讀取 ---
          pinMode(gpioPin, OUTPUT);
          digitalWrite(gpioPin, LOW);
-         delayMicroseconds(50);
-         pinMode(gpioPin, INPUT_PULLUP);
-         const uint32_t t0 = micros();
-         const uint32_t tmax = 8000u;
-         while (digitalRead(gpioPin) == LOW) {
-             if ((micros() - t0) > tmax) {
-                 pinMode(gpioPin, INPUT);
-                 return 0;
-             }
-         }
-         const uint32_t dt = micros() - t0;
+         delayMicroseconds(TOUCH_DISCHARGE_US); // 確保電荷徹底放空
+         
+         // 進入臨界區，防止 BLE 中斷干擾採樣時機
+         portENTER_CRITICAL(&s_mux);
+         pinMode(gpioPin, INPUT_PULLUP); // 啟動內部 $45k\Omega$ 上拉充電
+         
+         analogSetPinAttenuation(gpioPin, ADC_11db);
+         // 直接讀取。在 160MHz 下，analogRead 的函數開銷剛好落在 RC 曲線的中段
+         int r = analogRead(gpioPin); 
+         portEXIT_CRITICAL(&s_mux);
+         
+         if (r < 0) r = 0;
+         if (r > 4095) r = 4095;
+         
          pinMode(gpioPin, INPUT);
-         return touchRiseTimeTo4095(dt);
+         return static_cast<uint16_t>(r);
+     } else {
+         // --- 方法 B: 數位 RC 週期計數法 ---
+         pinMode(gpioPin, OUTPUT);
+         digitalWrite(gpioPin, LOW);
+         delayMicroseconds(TOUCH_DISCHARGE_US);
+         
+         uint32_t start_cycles = 0;
+         uint32_t dt_cycles = 0;
+ 
+         portENTER_CRITICAL(&s_mux);
+         pinMode(gpioPin, INPUT_PULLUP);
+         start_cycles = esp_cpu_get_cycle_count();
+         
+         // 使用寄存器級別的極速輪詢，避開 digitalRead 的延遲
+         while (((REG_READ(GPIO_IN_REG) >> gpioPin) & 1) == 0) {
+             // 超時保護：超過 160,000 個週期 (1ms) 跳出，防止當機
+             if (esp_cpu_get_cycle_count() - start_cycles > 160000) break;
+         }
+         dt_cycles = esp_cpu_get_cycle_count() - start_cycles;
+         portEXIT_CRITICAL(&s_mux);
+         
+         pinMode(gpioPin, INPUT);
+         
+         // 映射與轉換：將 ns 級的時間差轉換為 12-bit 數值
+         // 手指觸碰時 C 變大 -> dt 變大 -> 4095 - sub 變小（符合儀表板視覺）
+         const uint32_t capCycles = 10000u; 
+         if (dt_cycles > capCycles) dt_cycles = capCycles;
+         
+         uint32_t sub = (dt_cycles * 4095u) / capCycles;
+         if (sub > 4095u) sub = 4095u;
+         
+         return static_cast<uint16_t>(4095u - sub);
      }
  }
  
@@ -114,6 +103,7 @@
      memset(s_touchWin, 0, sizeof(s_touchWin));
  }
  
+ /** 7 點滑動中位數濾波：有效剔除藍牙突發雜訊 */
  static uint16_t touchMedianPushCh(int ch, uint16_t v) {
      if (ch < 0 || ch >= MAX_CHANNELS) return v;
      uint16_t* w = s_touchWin[ch];
@@ -147,16 +137,17 @@
                      const uint16_t med = touchMedianPushCh(
                          i, SensorEngine::readSoftwareTouch(static_cast<uint8_t>(pin)));
                      tmp[cnt++] = med;
+                     // 恢復原有拉阻設定
+                     if ((g_sysConfig.pullupMask >> i) & 1) gpio_pullup_en((gpio_num_t)pin);
                  }
              } else if (i < NUM_ADC_CHANNELS) {
                  const int pin = ADC_PINS[i];
                  tmp[cnt++] = static_cast<uint16_t>(analogRead(pin));
-                 if ((g_sysConfig.pullupMask >> i) & 1) {
-                     gpio_pullup_en(static_cast<gpio_num_t>(pin));
-                 }
+                 if ((g_sysConfig.pullupMask >> i) & 1) gpio_pullup_en((gpio_num_t)pin);
              } else {
                  const int di = i - NUM_ADC_CHANNELS;
-                 const bool hi = digitalRead(DIGITAL_PINS[di]) == HIGH;
+                 const int pin = DIGITAL_PINS[di];
+                 const bool hi = (digitalRead(pin) == HIGH);
                  tmp[cnt++] = hi ? 4095u : 0u;
              }
          }
@@ -193,17 +184,13 @@
  }
  
  void SensorEngine::restartSamplingTimer() {
-     if (s_timer != nullptr) {
-         esp_timer_stop(s_timer);
-     }
+     if (s_timer != nullptr) esp_timer_stop(s_timer);
      if (g_sysConfig.sampleRate == 0) return;
      
      uint64_t period_us = 1000000ULL / static_cast<uint64_t>(g_sysConfig.sampleRate);
      if (period_us < 50) period_us = 50;
      
-     if (s_timer != nullptr) {
-         esp_timer_start_periodic(s_timer, period_us);
-     }
+     if (s_timer != nullptr) esp_timer_start_periodic(s_timer, period_us);
  }
  
  bool SensorEngine::takePending(uint16_t* outputData, uint8_t& count, uint32_t& timestampUs) {
