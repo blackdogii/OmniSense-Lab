@@ -1,5 +1,5 @@
 {
-  "version": 2,
+  "version": 3,
   "experiments": [
     {
       "id": "dashboard",
@@ -7,52 +7,6 @@
       "shortLabel": "主控台",
       "icon": "layout-dashboard",
       "subtitle": "系統主控台"
-    },
-    {
-      "id": "simple-piano",
-      "label": "七音階電子琴",
-      "shortLabel": "電子琴",
-      "icon": "music",
-      "subtitle": "七音階電子琴",
-      "description": "觸控／上拉腳位對應音階，訂閱 omnisense:data 驅動發聲。",
-      "hardwarePreset": {
-        "message": "此實驗建議啟用 G0–G6 並開啟上拉，是否自動同步至裝置？",
-        "activeMask": 127,
-        "pullupMask": 127,
-        "freq": 50,
-        "res": 1
-      }
-    },
-    {
-      "id": "magic-bow",
-      "label": "魔法弓箭",
-      "shortLabel": "弓箭",
-      "icon": "target",
-      "subtitle": "魔法弓箭",
-      "description": "ADC 0–4 蓄力與放箭；可於 app.js 擴充動畫。",
-      "hardwarePreset": {
-        "message": "魔法弓箭建議啟用 G0–G4 並開啟上拉模式，是否自動同步至裝置？",
-        "activeMask": 31,
-        "pullupMask": 31,
-        "freq": 80,
-        "res": 1
-      }
-    },
-    {
-      "id": "magic-bow-tester",
-      "label": "弓弦品質測試",
-      "shortLabel": "弓測",
-      "icon": "activity",
-      "subtitle": "Magic Bow Quality Tester",
-      "description": "導電弓弦三階段測試：基準、拉滿、回復；雷達評分 S–D。",
-      "hardwarePreset": {
-        "message": "弓弦測試需 G0 觸控觸發 + G2 ADC（10k 上拉）。是否自動同步？",
-        "activeMask": 5,
-        "pullupMask": 4,
-        "freq": 100,
-        "res": 1,
-        "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
-      }
     },
     {
       "id": "omni-forge-bowsmith",

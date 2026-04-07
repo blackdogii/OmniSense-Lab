@@ -18,4 +18,4 @@
 
 ## 素材檔案
 
-實驗專屬 STL、組裝圖、照片請放在各實驗資料夾下之 `hardware/`（例如 `experiments/magic-bow/hardware/`）。
+實驗專屬 STL、組裝圖、照片請放在各實驗資料夾下之 `hardware/`（例如 `experiments/omni-forge-bowsmith/hardware/`）。
