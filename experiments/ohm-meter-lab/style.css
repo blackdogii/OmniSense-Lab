@@ -1,0 +1,247 @@
+/* Ohm-Meter-Lab — Ohmic Master / 電阻鑑定師 */
+
+.ohm-root {
+    --ohm-bg: #0c1222;
+    --ohm-line: rgba(56, 189, 248, 0.28);
+    --ohm-cyan: #38bdf8;
+    --ohm-text: #f1f5f9;
+    --ohm-muted: #94a3b8;
+    max-width: 36rem;
+    margin: 0 auto;
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ohm-text);
+}
+
+.ohm-hero {
+    text-align: center;
+    margin-bottom: 0.75rem;
+}
+
+.ohm-title {
+    font-size: 1.05rem;
+    font-weight: 900;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.ohm-sub {
+    font-size: 0.68rem;
+    color: var(--ohm-muted);
+    margin-top: 0.35rem;
+    line-height: 1.45;
+}
+
+.ohm-tabs {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.65rem;
+}
+
+.ohm-tab {
+    flex: 1;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.6rem;
+    border: 1px solid rgba(51, 65, 85, 0.7);
+    background: rgba(15, 23, 42, 0.6);
+    color: var(--ohm-muted);
+    font-size: 0.72rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.ohm-tab--active {
+    border-color: rgba(56, 189, 248, 0.55);
+    background: rgba(8, 47, 73, 0.55);
+    color: var(--ohm-cyan);
+}
+
+.ohm-panel {
+    display: none;
+    padding: 0.75rem;
+    border-radius: 0.85rem;
+    border: 1px solid var(--ohm-line);
+    background: rgba(15, 23, 42, 0.75);
+    margin-bottom: 0.6rem;
+}
+
+.ohm-panel--visible {
+    display: block;
+}
+
+.ohm-mode-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    margin-bottom: 0.65rem;
+}
+
+.ohm-mode-btn {
+    flex: 1;
+    min-width: 5.5rem;
+    padding: 0.45rem 0.4rem;
+    border-radius: 0.55rem;
+    border: 1px solid rgba(71, 85, 105, 0.8);
+    background: rgba(30, 41, 59, 0.6);
+    color: #cbd5e1;
+    font-size: 0.68rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.ohm-mode-btn--on {
+    border-color: rgba(56, 189, 248, 0.65);
+    color: var(--ohm-cyan);
+    box-shadow: 0 0 16px rgba(56, 189, 248, 0.15);
+}
+
+.ohm-readout {
+    text-align: center;
+    padding: 1rem 0.5rem;
+    border-radius: 0.75rem;
+    background: linear-gradient(180deg, rgba(8, 47, 73, 0.35), transparent);
+    border: 1px solid rgba(56, 189, 248, 0.2);
+}
+
+.ohm-readout-label {
+    font-size: 0.6rem;
+    letter-spacing: 0.2em;
+    font-weight: 800;
+    color: #a78bfa;
+    margin-bottom: 0.25rem;
+}
+
+.ohm-readout-val {
+    font-size: 1.75rem;
+    font-weight: 900;
+    font-variant-numeric: tabular-nums;
+    font-family: ui-monospace, monospace;
+    color: #e0f2fe;
+}
+
+.ohm-readout-raw {
+    font-size: 0.65rem;
+    color: var(--ohm-muted);
+    margin-top: 0.35rem;
+}
+
+.ohm-warn {
+    margin-top: 0.5rem;
+    padding: 0.45rem 0.55rem;
+    border-radius: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 700;
+    text-align: center;
+    background: rgba(127, 29, 29, 0.35);
+    border: 1px solid rgba(248, 113, 113, 0.35);
+    color: #fecaca;
+}
+
+.ohm-warn--ok {
+    background: rgba(20, 83, 45, 0.25);
+    border-color: rgba(74, 222, 128, 0.35);
+    color: #bbf7d0;
+}
+
+.ohm-formula {
+    font-size: 0.62rem;
+    color: var(--ohm-muted);
+    margin-top: 0.5rem;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.ohm-lab-grid {
+    display: grid;
+    gap: 0.5rem;
+}
+
+.ohm-input-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    align-items: center;
+}
+
+.ohm-input-row label {
+    font-size: 0.7rem;
+    color: var(--ohm-muted);
+}
+
+.ohm-input-row input {
+    flex: 1;
+    min-width: 6rem;
+    padding: 0.4rem 0.5rem;
+    border-radius: 0.45rem;
+    border: 1px solid rgba(51, 65, 85, 0.9);
+    background: rgba(15, 23, 42, 0.9);
+    color: var(--ohm-text);
+    font-size: 0.8rem;
+}
+
+.ohm-btn {
+    padding: 0.45rem 0.65rem;
+    border-radius: 0.5rem;
+    font-size: 0.72rem;
+    font-weight: 800;
+    border: 1px solid rgba(56, 189, 248, 0.4);
+    background: rgba(8, 47, 73, 0.5);
+    color: var(--ohm-cyan);
+    cursor: pointer;
+}
+
+.ohm-btn:disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+}
+
+.ohm-table {
+    width: 100%;
+    font-size: 0.65rem;
+    border-collapse: collapse;
+    margin-top: 0.35rem;
+}
+
+.ohm-table th,
+.ohm-table td {
+    border: 1px solid rgba(51, 65, 85, 0.5);
+    padding: 0.3rem 0.35rem;
+    text-align: right;
+}
+
+.ohm-table th:first-child,
+.ohm-table td:first-child {
+    text-align: left;
+}
+
+.ohm-canvas-host {
+    width: 100%;
+    border-radius: 0.65rem;
+    overflow: hidden;
+    border: 1px solid rgba(51, 65, 85, 0.6);
+    background: var(--ohm-bg);
+    min-height: 220px;
+    margin-top: 0.5rem;
+}
+
+.ohm-canvas-host canvas {
+    display: block;
+    width: 100% !important;
+}
+
+.ohm-lab-out {
+    font-size: 0.65rem;
+    color: #cbd5e1;
+    line-height: 1.5;
+    margin-top: 0.35rem;
+    font-family: ui-monospace, monospace;
+}
+
+.ohm-file {
+    font-size: 0.65rem;
+    color: var(--ohm-muted);
+}

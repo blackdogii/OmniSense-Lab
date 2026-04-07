@@ -1,5 +1,5 @@
 {
-  "version": 3,
+  "version": 4,
   "experiments": [
     {
       "id": "dashboard",
@@ -22,6 +22,22 @@
         "freq": 100,
         "res": 1,
         "channelModes": ["touch", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+      }
+    },
+    {
+      "id": "ohm-meter-lab",
+      "label": "電阻鑑定師：精準之路",
+      "shortLabel": "Ohm",
+      "icon": "gauge",
+      "subtitle": "Ohmic Master · Ohm-Meter-Lab",
+      "description": "三量程分壓量測、邊界安全提示、The Lab 多點校準與二次多項式擬合（最小二乘）。",
+      "hardwarePreset": {
+        "message": "電阻鑑定師需 G2 為 ADC 並啟用上拉（實體依量程更換上拉電阻）。是否同步？",
+        "activeMask": 4,
+        "pullupMask": 4,
+        "freq": 100,
+        "res": 1,
+        "channelModes": ["adc", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
       }
     }
   ]
