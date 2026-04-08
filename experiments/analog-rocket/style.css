@@ -1,0 +1,218 @@
+/* Interstellar Voyager: Analog Engine — cockpit theme */
+
+.hidden {
+    display: none !important;
+}
+
+.ar-root {
+    --ar-bg0: #070b14;
+    --ar-bg1: #0c1224;
+    --ar-panel: rgba(12, 22, 42, 0.92);
+    --ar-line: rgba(34, 211, 238, 0.35);
+    --ar-text: #e2e8f0;
+    --ar-dim: #64748b;
+    max-width: 920px;
+    margin: 0 auto;
+    padding: 0.6rem 0.5rem 1.25rem;
+    color: var(--ar-text);
+    font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
+    min-height: 280px;
+}
+
+.ar-root h1 {
+    font-size: 1.15rem;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    margin: 0 0 0.25rem;
+    background: linear-gradient(90deg, #38bdf8, #a78bfa, #f472b6);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+}
+
+.ar-sub {
+    font-size: 0.65rem;
+    color: var(--ar-dim);
+    letter-spacing: 0.12em;
+    margin-bottom: 0.85rem;
+}
+
+.ar-panel {
+    background: var(--ar-panel);
+    border: 1px solid var(--ar-line);
+    border-radius: 0.65rem;
+    padding: 0.9rem 1rem;
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.8) inset,
+        0 8px 32px rgba(0, 0, 0, 0.45);
+    position: relative;
+    overflow: hidden;
+}
+
+.ar-panel::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background-image:
+        linear-gradient(rgba(34, 211, 238, 0.04) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(34, 211, 238, 0.04) 1px, transparent 1px);
+    background-size: 16px 16px;
+    pointer-events: none;
+    opacity: 0.5;
+}
+
+.ar-view {
+    display: none;
+    position: relative;
+    z-index: 1;
+}
+
+.ar-view--on {
+    display: block;
+}
+
+.ar-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
+    margin-top: 0.65rem;
+}
+
+.ar-btn {
+    border-radius: 0.45rem;
+    border: 1px solid rgba(56, 189, 248, 0.45);
+    background: rgba(14, 116, 144, 0.35);
+    color: #e0f2fe;
+    font-size: 0.75rem;
+    font-weight: 700;
+    padding: 0.55rem 0.9rem;
+    cursor: pointer;
+    transition:
+        transform 0.1s,
+        background 0.15s,
+        border-color 0.15s;
+}
+
+.ar-btn:hover {
+    background: rgba(34, 211, 238, 0.2);
+    border-color: rgba(34, 211, 238, 0.65);
+}
+
+.ar-btn:active {
+    transform: scale(0.98);
+}
+
+.ar-btn--primary {
+    background: linear-gradient(135deg, rgba(6, 182, 212, 0.5), rgba(99, 102, 241, 0.45));
+    border-color: rgba(125, 211, 252, 0.55);
+}
+
+.ar-btn--danger {
+    border-color: rgba(248, 113, 113, 0.55);
+    background: rgba(127, 29, 29, 0.35);
+    color: #fecaca;
+}
+
+.ar-btn--ghost {
+    background: rgba(30, 41, 59, 0.6);
+    border-color: rgba(71, 85, 105, 0.8);
+    color: #94a3b8;
+}
+
+.ar-label {
+    font-size: 0.68rem;
+    color: #94a3b8;
+    display: block;
+    margin-bottom: 0.25rem;
+}
+
+.ar-select {
+    width: 100%;
+    max-width: 280px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    color: #f1f5f9;
+    border-radius: 0.45rem;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.78rem;
+}
+
+.ar-meter {
+    height: 0.65rem;
+    border-radius: 999px;
+    background: #0f172a;
+    border: 1px solid #334155;
+    overflow: hidden;
+    margin-top: 0.45rem;
+}
+
+.ar-meter__fill {
+    height: 100%;
+    width: 0%;
+    border-radius: 999px;
+    background: linear-gradient(90deg, #0ea5e9, #a78bfa);
+    transition: width 0.08s linear;
+}
+
+.ar-hud {
+    font-family: ui-monospace, 'Cascadia Code', monospace;
+    font-size: 0.7rem;
+    color: #22d3ee;
+    margin-top: 0.5rem;
+    line-height: 1.5;
+}
+
+.ar-fail {
+    position: fixed;
+    inset: 0;
+    z-index: 50;
+    background: rgba(15, 23, 42, 0.92);
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.ar-fail--on {
+    display: flex;
+}
+
+.ar-fail h2 {
+    color: #f87171;
+    font-size: 1.1rem;
+    margin: 0;
+    letter-spacing: 0.2em;
+}
+
+#ar-game-canvas {
+    width: 100%;
+    border-radius: 0.5rem;
+    overflow: hidden;
+    background: #020617;
+    border: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.ar-big-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 0.45rem;
+    margin-top: 0.75rem;
+}
+
+@media (min-width: 480px) {
+    .ar-big-actions {
+        flex-direction: row;
+        flex-wrap: wrap;
+    }
+}
+
+.ar-wiz-step {
+    font-size: 0.62rem;
+    color: #818cf8;
+    text-transform: uppercase;
+    letter-spacing: 0.15em;
+    margin-bottom: 0.35rem;
+}

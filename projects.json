@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "experiments": [
     {
       "id": "dashboard",
@@ -52,6 +52,22 @@
         "activeMask": 31,
         "pullupMask": 0,
         "freq": 80,
+        "res": 1,
+        "channelModes": ["adc", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+      }
+    },
+    {
+      "id": "analog-rocket",
+      "label": "星際旅航者：類比引擎",
+      "shortLabel": "航者",
+      "icon": "rocket",
+      "subtitle": "Interstellar Voyager · Analog Engine",
+      "description": "感測校準精靈、推力係數、行星逃脫橫向捲軸、尾燄與引擎合成音。",
+      "hardwarePreset": {
+        "message": "類比引擎需啟用 G0–G5（前五路類比 + G5 數位）。是否同步？",
+        "activeMask": 63,
+        "pullupMask": 0,
+        "freq": 90,
         "res": 1,
         "channelModes": ["adc", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
       }
