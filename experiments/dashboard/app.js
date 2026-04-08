@@ -134,6 +134,7 @@ function setModeButtonIcon(modeBtn, id) {
     const key = getAnalogModeKey(id);
     modeBtn.innerHTML = `<i data-lucide="${MODE_ICON[key]}" class="w-[14px] h-[14px]"></i>`;
     modeBtn.title = MODE_TITLE[key];
+    if (window.lucide) window.lucide.createIcons();
 }
 
 function getWaveColorCss(id, alpha = 1) {
@@ -333,6 +334,23 @@ function togglePin(id) {
 }
 
 function cycleAnalogMode(id) {
+    if (id === G2_ID) {
+        // G2 only supports normal/pullup for this dashboard UX.
+        if ((omni.pullupMask >> id) & 1) {
+            omni.channelMode[id] = 'adc';
+            omni.pullupMask &= ~(1 << id);
+        } else {
+            omni.channelMode[id] = 'adc';
+            omni.pullupMask |= 1 << id;
+        }
+        omni.pullupMask &= 0x01ff;
+        omni.pullupMask |= DIGITAL_PULL_BITS;
+        setModeButtonIcon(document.getElementById(`mode-${id}`), id);
+        updateCardTitles();
+        updateWaveTitle();
+        markDirty();
+        return;
+    }
     const key = getAnalogModeKey(id);
     if (key === 'normal') {
         omni.channelMode[id] = 'adc';
@@ -488,6 +506,7 @@ function wireWaveZoomControls() {
     });
     syncWaveZoomLabels();
     updateWaveZoomUiVisibility();
+    if (window.lucide) window.lucide.createIcons();
 }
 
 function toVoltage(v) {
@@ -814,6 +833,7 @@ function buildAnalogRow(id) {
 function initDashboardUi() {
     injectDashboardStyles();
     omni.pullupMask = (omni.pullupMask & 0x01ff) | DIGITAL_PULL_BITS;
+    if (omni.channelMode[G2_ID] === 'touch') omni.channelMode[G2_ID] = 'adc';
     DIGITAL_IDS.forEach((id) => {
         omni.channelMode[id] = 'dig';
     });
