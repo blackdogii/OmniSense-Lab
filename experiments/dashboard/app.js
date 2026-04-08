@@ -80,6 +80,39 @@ function injectDashboardStyles() {
       .dash-landscape-scope #dashboardSidebar{display:none!important;}
       .dash-landscape-scope #dashboardCardsWrap{display:none!important;}
       .dash-landscape-scope #canvasParent{aspect-ratio:16/7!important;min-height:66vh;}
+      @media (max-width:768px){
+        #toolbarActions.dash-toolbar{
+          display:grid;
+          grid-template-columns:repeat(3,minmax(0,1fr));
+          gap:8px;
+          width:100%;
+          overflow-x:visible;
+        }
+        #sidebarToggleBtn{grid-column:1;grid-row:1;}
+        #waveAutoBtn{grid-column:2;grid-row:1;}
+        #rawOverlayBtn{grid-column:3;grid-row:1;}
+        #clearBtn{grid-column:1;grid-row:2;}
+        #exportBtn{grid-column:2 / span 2;grid-row:2;}
+        #toolbarActions.dash-toolbar .dash-tool-btn{min-height:32px;padding:0.35rem 0.5rem;font-size:9px;}
+        #canvasParent.dash-chart-host.canvas-container{
+          aspect-ratio:unset!important;
+          height:clamp(168px,38vh,300px)!important;
+          min-height:156px;
+          max-height:42vh;
+        }
+        #canvasParent.dash-chart-host.canvas-container canvas{
+          width:100%!important;height:100%!important;display:block;
+        }
+        #dashboardCardsWrap .dash-data-card{padding:0.45rem 0.5rem!important;}
+      }
+      @media (max-width:768px){
+        .dash-landscape-scope #canvasParent.dash-chart-host.canvas-container{
+          height:auto!important;
+          max-height:none!important;
+          min-height:55vh!important;
+          aspect-ratio:16/7!important;
+        }
+      }
     `;
     document.head.appendChild(styleTag);
 }
@@ -740,6 +773,14 @@ function updateSidebarLayout() {
     if (cardsWrap) cardsWrap.classList.toggle('hidden', landscapeScopeMode);
 }
 
+function resizeDashboardCanvas() {
+    const par = document.getElementById('canvasParent');
+    if (!par || !omniP5) return;
+    const w = Math.max(1, par.offsetWidth);
+    const h = Math.max(1, par.offsetHeight);
+    omniP5.resizeCanvas(w, h);
+}
+
 function evaluateLandscapeScopeMode() {
     landscapeScopeMode =
         isMobileLikeViewport() &&
@@ -748,6 +789,7 @@ function evaluateLandscapeScopeMode() {
     const root = document.getElementById('dashboardRoot');
     if (root) root.classList.toggle('dash-landscape-scope', landscapeScopeMode);
     updateSidebarLayout();
+    resizeDashboardCanvas();
     omniP5?.redraw();
 }
 
@@ -794,12 +836,12 @@ function attachDataListener() {
             if (omni.channelMode[i] === 'touch') {
                 hint.classList.remove('hidden');
                 hint.innerText = '觸控';
-                hint.className = 'text-[8px] text-cyan-400/90 mt-1 min-h-[1rem]';
+                hint.className = 'text-[8px] text-cyan-400/90 mt-0.5 min-h-[1rem] text-center md:text-left';
                 card?.classList.remove('dash-float-pulse');
             } else if (FLOATING_ADC_IDS.has(i) && ch[i].floating) {
                 hint.classList.remove('hidden');
                 hint.innerText = '可能懸空';
-                hint.className = 'text-[8px] text-amber-400/90 mt-1 min-h-[1rem]';
+                hint.className = 'text-[8px] text-amber-400/90 mt-0.5 min-h-[1rem] text-center md:text-left';
                 card?.classList.add('dash-float-pulse');
             } else {
                 hint.classList.add('hidden');
@@ -872,8 +914,9 @@ function initDashboardUi() {
     for (let id = 0; id < 9; id++) {
         const c = document.createElement('div');
         c.id = `card-${id}`;
-        c.className = 'glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all border border-slate-700/50';
-        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-xl sm:text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
+        c.className =
+            'dash-data-card glass-card p-2 sm:p-3 md:p-4 rounded-lg sm:rounded-xl md:rounded-2xl transition-all border border-slate-700/50 text-center md:text-left';
+        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-lg sm:text-xl md:text-2xl font-mono font-bold text-slate-100 tabular-nums">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-0.5 min-h-[1rem] hidden text-center md:text-left"></p>`;
         cards.appendChild(c);
     }
 
@@ -918,6 +961,10 @@ export async function mount(root) {
         initDashboardUi();
         await loadP5();
         wireP5();
+        requestAnimationFrame(() => {
+            resizeDashboardCanvas();
+            omniP5?.redraw();
+        });
         canvasHostEl = document.getElementById('canvasParent');
         wireCanvasPointer();
         attachDataListener();
