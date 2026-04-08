@@ -171,18 +171,27 @@ async function maybeHardwarePresetPrompt(meta) {
 async function mountDashboard() {
     const root = getContainer();
     if (!root) return;
-    const entryUrl = new URL('../experiments/dashboard/app.js', import.meta.url);
-    const mod = await import(entryUrl);
-    activeModule = mod;
-    activeId = 'dashboard';
-    omni.currentViewId = 'dashboard';
-    if (mod.mount) await mod.mount(root);
-    if (ble.isConnected() && mod.onConnected) {
-        try {
-            await mod.onConnected();
-        } catch (e) {
-            console.warn(e);
+    try {
+        const entryUrl = new URL('../experiments/dashboard/app.js', import.meta.url);
+        const mod = await import(entryUrl);
+        activeModule = mod;
+        activeId = 'dashboard';
+        omni.currentViewId = 'dashboard';
+        if (mod.mount) await mod.mount(root);
+        if (ble.isConnected() && mod.onConnected) {
+            try {
+                await mod.onConnected();
+            } catch (e) {
+                console.warn(e);
+            }
         }
+    } catch (e) {
+        console.error('Dashboard load failed', e);
+        root.innerHTML = `
+          <div class="rounded-xl border border-rose-500/40 bg-rose-950/20 p-4 text-sm text-rose-200">
+            主控台載入失敗，請先重新整理頁面（Ctrl+F5）。<br>
+            <span class="text-rose-300/90">錯誤：${String(e?.message || e)}</span>
+          </div>`;
     }
 }
 
