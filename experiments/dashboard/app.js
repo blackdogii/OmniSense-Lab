@@ -61,6 +61,12 @@ let smoothHz = 0;
 
 let dataListener = null;
 
+function isMobileLikeViewport() {
+    const coarse = window.matchMedia?.('(pointer: coarse)')?.matches;
+    const narrow = window.innerWidth <= 900;
+    return Boolean(coarse || narrow);
+}
+
 function injectDashboardStyles() {
     if (styleTag) return;
     styleTag = document.createElement('style');
@@ -735,7 +741,10 @@ function updateSidebarLayout() {
 }
 
 function evaluateLandscapeScopeMode() {
-    landscapeScopeMode = window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 560;
+    landscapeScopeMode =
+        isMobileLikeViewport() &&
+        window.matchMedia('(orientation: landscape)').matches &&
+        window.innerHeight <= 560;
     const root = document.getElementById('dashboardRoot');
     if (root) root.classList.toggle('dash-landscape-scope', landscapeScopeMode);
     updateSidebarLayout();
