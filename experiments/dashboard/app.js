@@ -735,7 +735,7 @@ function updateConnectionDiagnostics() {
 
 function updateSidebarLayout() {
     const sidebar = document.getElementById('dashboardSidebar');
-    const cardsWrap = document.getElementById('dashboardCardsWrap');
+    const cardsWrap = document.getElementById('dashboardCardsWrap') || document.getElementById('dataCards');
     if (sidebar) sidebar.classList.toggle('hidden', sidebarCollapsed && !landscapeScopeMode);
     if (cardsWrap) cardsWrap.classList.toggle('hidden', landscapeScopeMode);
 }
@@ -865,7 +865,10 @@ function initDashboardUi() {
         dig.appendChild(b);
     });
 
-    const cards = document.getElementById('dashboardCardsWrap');
+    const cards = document.getElementById('dashboardCardsWrap') || document.getElementById('dataCards');
+    if (!cards) {
+        throw new Error('找不到資料卡容器（dashboardCardsWrap/dataCards）');
+    }
     for (let id = 0; id < 9; id++) {
         const c = document.createElement('div');
         c.id = `card-${id}`;
@@ -911,13 +914,18 @@ export async function mount(root) {
     const htmlUrl = new URL('./ui.html', import.meta.url);
     const r = await fetch(htmlUrl);
     root.innerHTML = await r.text();
-    initDashboardUi();
-    await loadP5();
-    wireP5();
-    canvasHostEl = document.getElementById('canvasParent');
-    wireCanvasPointer();
-    attachDataListener();
-    setAfterProcessCallback(onFrameAfterProcess);
+    try {
+        initDashboardUi();
+        await loadP5();
+        wireP5();
+        canvasHostEl = document.getElementById('canvasParent');
+        wireCanvasPointer();
+        attachDataListener();
+        setAfterProcessCallback(onFrameAfterProcess);
+    } catch (err) {
+        console.error('Dashboard mount failed:', err);
+        root.innerHTML = `<div class="glass-card rounded-xl border border-rose-500/40 bg-rose-950/20 p-4 text-sm text-rose-200">主控台載入失敗，請重新整理頁面。<br><span class="text-rose-300/90">${String(err?.message || err)}</span></div>`;
+    }
 }
 
 export async function onConnected() {
