@@ -187,7 +187,10 @@ function onData(ev) {
             if (delta >= NOISE_GATE_DELTA) {
                 const f = mapAdcToFreq(adc, cfg.min, cfg.max);
                 currentFreq[i] = f;
-                voices[i].osc.frequency.setTargetAtTime(f, now, 0.03);
+                // Keep audio pitch tightly aligned with the displayed Hz.
+                voices[i].osc.frequency.cancelScheduledValues(now);
+                voices[i].osc.frequency.setValueAtTime(voices[i].osc.frequency.value, now);
+                voices[i].osc.frequency.linearRampToValueAtTime(f, now + 0.008);
                 lastAdc[i] = adc;
             }
         }
@@ -295,14 +298,14 @@ async function applyPreset() {
         touchMask: computeTouchModeMask()
     });
     const si = document.getElementById('syncIndicator');
-    if (si) si.innerText = '⚡ Omni混音機：GPIO 1–5 感測輸入';
+    if (si) si.innerText = '⚡ Omni混音機：GPIO 0–4 感測輸入';
 }
 
 function buildDom(root) {
     const toggles = CHANS.map(
         (_, idx) => `
 <button type="button" class="omx-toggle omx-toggle--on" data-omx-ch="${idx}">
-  <span class="omx-toggle-title">GPIO ${idx + 1}</span>
+  <span class="omx-toggle-title">GPIO ${idx}</span>
   <span class="omx-toggle-hz" id="omx-hz-${idx}">220 Hz</span>
 </button>`
     ).join('');
@@ -347,7 +350,6 @@ function buildDom(root) {
 
       <div class="omx-toggles">${toggles}</div>
       <button id="omx-enable" type="button" class="omx-enable">點擊啟用音訊（瀏覽器限制）</button>
-      <p class="omx-hint">已加入 50ms 攻擊/釋放包絡與 Noise Gate，減少切換爆音與感測抖動飄音。</p>
     </div>
 
     <div class="omx-card">

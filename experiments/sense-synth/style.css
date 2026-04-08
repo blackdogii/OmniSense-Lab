@@ -182,13 +182,6 @@
     background: rgba(34, 211, 238, 0.22);
 }
 
-.omx-hint {
-    margin-top: 0.5rem;
-    color: #64748b;
-    font-size: 0.66rem;
-    line-height: 1.4;
-}
-
 .omx-viz {
     width: 100%;
     min-height: 230px;
