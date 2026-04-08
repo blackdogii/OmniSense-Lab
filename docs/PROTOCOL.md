@@ -80,3 +80,5 @@ Shell 以動態 `import()` 載入 `experiments/<id>/app.js`（官方）或使用
 - 可選：`export async function onConnected()` — 在 BLE 已連線時由 Shell 呼叫（例如套用實驗預設腳位）。
 
 `detail.channels` 為 **9 個邏輯通道**（與本文件通道順序一致）；未啟用之通道在 `channels` 中為 `null`。自訂模組若需跨網域載入，伺服器須允許 **CORS**，並以 `Content-Type: application/javascript`（或標準 ES module）提供檔案。
+
+教師自託管模組的檢查清單與 AI 提示詞範例見 **[CUSTOM_MODULE.md](./CUSTOM_MODULE.md)**。
