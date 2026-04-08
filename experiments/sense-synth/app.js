@@ -1,24 +1,23 @@
 /**
- * Sense-Synth Poly — 五路感測多音合成器（Web Audio + p5 示波）
- * 邏輯通道 0–4（實體 GPIO 0–4）：ADC → 220–1200 Hz，高讀值 → 高頻
+ * Omni Mixer cartridge (Web Audio + p5 scope).
+ * UI language is Traditional Chinese by requirement.
  */
 
-import { omni, PINS_CONFIG } from '../../web/core/state.js';
+import { omni } from '../../web/core/state.js';
 import { applyDeviceConfig } from '../../web/core/configApply.js';
 import { computeTouchModeMask } from '../../web/core/touchMask.js';
 import * as ble from '../../web/core/ble.js';
 
-/** 前五類比通道（使用者慣稱多路感測時與 G0–G4 對齊） */
 const CHANS = [0, 1, 2, 3, 4];
 const ADC_MAX = 4095;
-const F_MIN = 220;
-const F_MAX = 1200;
-const SCOPE_LEN = 200;
-/** 每聲道貢獻增益（疊加五路仍低於 clipping） */
-const PER_VOICE_GAIN = 0.11;
-const FREQ_SMOOTH_S = 0.028;
+const NOISE_GATE_DELTA = 10;
+const ADSR_SEC = 0.05;
+const SCOPE_POINTS = 220;
+const PRESET_ACTIVE = 0x1f;
+const PRESET_PULLUP = 0;
+const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 
-const WAVE_COLORS = [
+const COLOR_RGB = [
     [34, 211, 238],
     [99, 102, 241],
     [251, 191, 36],
@@ -26,9 +25,10 @@ const WAVE_COLORS = [
     [244, 114, 182]
 ];
 
-const PRESET_ACTIVE = 0x1f;
-const PRESET_PULLUP = 0;
-const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
+const STYLE_PRESETS = {
+    elegant: { min: 220, max: 660, osc: 'sine' },
+    magical: { min: 880, max: 3500, osc: 'triangle' }
+};
 
 let rootEl = null;
 let styleLink = null;
@@ -39,10 +39,15 @@ let audioCtx = null;
 let masterGain = null;
 /** @type {{ osc: OscillatorNode, gain: GainNode }[]} */
 let voices = [];
-let volumeSliderValue = 0.38;
 
 const channelOn = [true, true, true, true, true];
-const scopeRows = CHANS.map(() => new Float32Array(SCOPE_LEN).fill(0.5));
+const lastAdc = [0, 0, 0, 0, 0];
+const currentFreq = [220, 220, 220, 220, 220];
+const phaseState = [0, 0, 0, 0, 0];
+let isAudioReady = false;
+let volumeValue = 0.42;
+
+const scopeRows = CHANS.map(() => new Float32Array(SCOPE_POINTS).fill(0));
 let scopeWrite = 0;
 
 function injectCss() {
@@ -64,102 +69,142 @@ function loadP5() {
     });
 }
 
-function adcToFreq(adc) {
+function getStyleMode() {
+    return rootEl?.querySelector('#omx-style')?.value || 'elegant';
+}
+
+function getFreqRange() {
+    const mode = getStyleMode();
+    if (mode === 'custom') {
+        const minV = Number(rootEl?.querySelector('#omx-fmin')?.value);
+        const maxV = Number(rootEl?.querySelector('#omx-fmax')?.value);
+        const min = Number.isFinite(minV) ? Math.max(20, minV) : 220;
+        const max = Number.isFinite(maxV) ? Math.max(min + 1, maxV) : 1200;
+        return { min, max, osc: 'sine' };
+    }
+    return STYLE_PRESETS[mode] || STYLE_PRESETS.elegant;
+}
+
+function mapAdcToFreq(adc, min, max) {
     const x = Math.max(0, Math.min(ADC_MAX, adc)) / ADC_MAX;
-    return F_MIN + x * (F_MAX - F_MIN);
+    return min + x * (max - min);
+}
+
+function refreshCustomInputs() {
+    const wrap = rootEl?.querySelector('#omx-custom-wrap');
+    const isCustom = getStyleMode() === 'custom';
+    if (wrap) wrap.classList.toggle('hidden', !isCustom);
+}
+
+function refreshHzLabels() {
+    for (let i = 0; i < CHANS.length; i++) {
+        const el = rootEl?.querySelector(`#omx-hz-${i}`);
+        if (!el) continue;
+        el.textContent = `${Math.round(currentFreq[i])} Hz`;
+    }
 }
 
 function ensureAudioGraph() {
     if (audioCtx) return;
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    audioCtx = new Ctx();
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return;
+    audioCtx = new AC();
     masterGain = audioCtx.createGain();
-    masterGain.gain.value = volumeSliderValue * 0.55;
+    masterGain.gain.value = 0;
     masterGain.connect(audioCtx.destination);
 
-    const wave = rootEl?.querySelector('#ssp-waveform')?.value || 'sine';
+    const cfg = getFreqRange();
     for (let i = 0; i < 5; i++) {
         const osc = audioCtx.createOscillator();
-        osc.type = wave === 'triangle' ? 'triangle' : 'sine';
-        osc.frequency.value = F_MIN;
-        const g = audioCtx.createGain();
-        g.gain.value = channelOn[i] ? PER_VOICE_GAIN : 0;
-        osc.connect(g);
-        g.connect(masterGain);
+        osc.type = cfg.osc;
+        osc.frequency.value = cfg.min;
+        const gain = audioCtx.createGain();
+        gain.gain.value = 0;
+        osc.connect(gain);
+        gain.connect(masterGain);
         osc.start();
-        voices.push({ osc, gain: g });
+        voices.push({ osc, gain });
     }
+}
+
+function applyMasterGain() {
+    if (!audioCtx || !masterGain) return;
+    // hard ceiling to keep summed output <= 1.0
+    const gain = Math.max(0, Math.min(1, volumeValue));
+    masterGain.gain.setTargetAtTime(gain, audioCtx.currentTime, ADSR_SEC);
+}
+
+function updateVoiceGainsWithAdsr() {
+    if (!audioCtx || voices.length !== 5) return;
+    const activeCount = channelOn.filter(Boolean).length || 1;
+    const perVoice = Math.min(1, 1 / activeCount) * 0.9;
+    const now = audioCtx.currentTime;
+    for (let i = 0; i < 5; i++) {
+        const target = channelOn[i] ? perVoice : 0;
+        voices[i].gain.gain.cancelScheduledValues(now);
+        voices[i].gain.gain.setTargetAtTime(target, now, ADSR_SEC);
+    }
+}
+
+function applyOscTypeFromStyle() {
+    const cfg = getFreqRange();
+    for (const v of voices) v.osc.type = cfg.osc;
 }
 
 async function resumeAudio() {
     ensureAudioGraph();
     if (!audioCtx) return;
     if (audioCtx.state === 'suspended') await audioCtx.resume();
-    rootEl?.querySelector('#ssp-enable-audio')?.classList.add('hidden');
+    isAudioReady = true;
+    rootEl?.querySelector('#omx-enable')?.classList.add('hidden');
+    applyMasterGain();
+    updateVoiceGainsWithAdsr();
 }
 
-function setMasterFromUi() {
-    if (!masterGain || !audioCtx) return;
-    const v = volumeSliderValue * 0.55;
-    masterGain.gain.setTargetAtTime(v, audioCtx.currentTime, 0.02);
-}
-
-function updateWaveformType() {
-    const w = rootEl?.querySelector('#ssp-waveform')?.value || 'sine';
-    const t = w === 'triangle' ? 'triangle' : 'sine';
-    for (const v of voices) {
-        v.osc.type = t;
-    }
-}
-
-function syncChannelGains() {
-    if (!audioCtx) return;
-    for (let i = 0; i < voices.length; i++) {
-        const g = channelOn[i] ? PER_VOICE_GAIN : 0;
-        voices[i].gain.gain.setTargetAtTime(g, audioCtx.currentTime, 0.015);
-    }
-    refreshToggleUi();
-}
-
-function refreshToggleUi() {
-    CHANS.forEach((_, idx) => {
-        const btn = rootEl?.querySelector(`[data-ssp-ch="${idx}"]`);
-        if (!btn) return;
-        const on = channelOn[idx];
-        btn.classList.toggle('ssp-ch-btn--on', on);
-        btn.style.background = on
-            ? `rgba(${WAVE_COLORS[idx][0]}, ${WAVE_COLORS[idx][1]}, ${WAVE_COLORS[idx][2]}, 0.35)`
-            : '';
-        btn.style.borderColor = on ? `rgba(${WAVE_COLORS[idx][0]}, ${WAVE_COLORS[idx][1]}, ${WAVE_COLORS[idx][2]}, 0.65)` : '';
-    });
-}
-
-function pushScopeSample(channels) {
+function pushScopeFromFrequencies() {
     for (let i = 0; i < 5; i++) {
-        const ch = CHANS[i];
-        const c = channels[ch];
-        const raw = c ? c.filtered : 0;
-        scopeRows[i][scopeWrite] = Math.max(0, Math.min(1, raw / ADC_MAX));
+        const amp = channelOn[i] ? 1 : 0.2;
+        const hz = currentFreq[i];
+        phaseState[i] += (hz / 1200) * 0.22;
+        if (phaseState[i] > Math.PI * 2) phaseState[i] -= Math.PI * 2;
+        scopeRows[i][scopeWrite] = Math.sin(phaseState[i]) * amp;
     }
-    scopeWrite = (scopeWrite + 1) % SCOPE_LEN;
+    scopeWrite = (scopeWrite + 1) % SCOPE_POINTS;
 }
 
 function onData(ev) {
     if (omni.currentViewId !== 'sense-synth') return;
-    const ch = ev.detail.channels;
-    pushScopeSample(ch);
+    const channels = ev.detail.channels;
+    const cfg = getFreqRange();
 
     if (audioCtx && voices.length === 5) {
-        const t = audioCtx.currentTime;
-        for (let i = 0; i < 5; i++) {
-            const logic = CHANS[i];
-            const c = ch[logic];
+        const now = audioCtx.currentTime;
+        for (let i = 0; i < CHANS.length; i++) {
+            const c = channels[CHANS[i]];
             if (!c) continue;
-            const f = adcToFreq(c.filtered);
-            voices[i].osc.frequency.setTargetAtTime(f, t, FREQ_SMOOTH_S);
+            const adc = c.filtered;
+            const delta = Math.abs(adc - lastAdc[i]);
+            if (delta >= NOISE_GATE_DELTA) {
+                const f = mapAdcToFreq(adc, cfg.min, cfg.max);
+                currentFreq[i] = f;
+                voices[i].osc.frequency.setTargetAtTime(f, now, 0.03);
+                lastAdc[i] = adc;
+            }
+        }
+    } else {
+        for (let i = 0; i < CHANS.length; i++) {
+            const c = channels[CHANS[i]];
+            if (!c) continue;
+            const adc = c.filtered;
+            if (Math.abs(adc - lastAdc[i]) >= NOISE_GATE_DELTA) {
+                currentFreq[i] = mapAdcToFreq(adc, cfg.min, cfg.max);
+                lastAdc[i] = adc;
+            }
         }
     }
+
+    refreshHzLabels();
+    pushScopeFromFrequencies();
     vizP5?.redraw();
 }
 
@@ -167,32 +212,31 @@ function mountP5(host) {
     const P = window.p5;
     vizP5 = new P((p) => {
         p.setup = () => {
-            const w = Math.max(280, host.clientWidth || 320);
-            p.createCanvas(w, 220).parent(host);
+            p.createCanvas(Math.max(290, host.clientWidth || 320), 230).parent(host);
             p.noLoop();
         };
         p.draw = () => {
-            p.background(8, 12, 28);
-            const pad = 8;
-            const plotW = p.width - pad * 2;
-            const plotH = p.height - pad * 2;
-            p.stroke(51, 65, 85, 100);
-            p.strokeWeight(1);
-            for (let g = 0; g <= 4; g++) {
-                const gy = pad + (g * plotH) / 4;
-                p.line(pad, gy, pad + plotW, gy);
+            p.background(6, 10, 24);
+            const pad = 10;
+            const w = p.width - pad * 2;
+            const h = p.height - pad * 2;
+            p.stroke(51, 65, 85, 120);
+            for (let i = 0; i <= 4; i++) {
+                const gy = pad + (i * h) / 4;
+                p.line(pad, gy, pad + w, gy);
             }
-            const n = SCOPE_LEN;
+
+            const n = SCOPE_POINTS;
             for (let ci = 0; ci < 5; ci++) {
-                const [r, gg, b] = WAVE_COLORS[ci];
-                p.stroke(r, gg, b, 200);
-                p.strokeWeight(1.75);
+                const [r, g, b] = COLOR_RGB[ci];
+                p.stroke(r, g, b, 210);
+                p.strokeWeight(1.8);
                 p.noFill();
                 p.beginShape();
                 for (let k = 0; k < n; k++) {
                     const idx = (scopeWrite + k) % n;
-                    const x = pad + (k / (n - 1)) * plotW;
-                    const y = pad + plotH - scopeRows[ci][idx] * plotH;
+                    const x = pad + (k / (n - 1)) * w;
+                    const y = pad + h * 0.5 - scopeRows[ci][idx] * h * 0.4;
                     p.vertex(x, y);
                 }
                 p.endShape();
@@ -201,28 +245,40 @@ function mountP5(host) {
     }, host);
 }
 
+function refreshToggleVisual() {
+    for (let i = 0; i < 5; i++) {
+        const btn = rootEl?.querySelector(`[data-omx-ch="${i}"]`);
+        if (!btn) continue;
+        const on = channelOn[i];
+        btn.classList.toggle('omx-toggle--on', on);
+        btn.classList.toggle('omx-toggle--off', !on);
+    }
+}
+
 function wireUi() {
-    CHANS.forEach((_, idx) => {
-        rootEl?.querySelector(`[data-ssp-ch="${idx}"]`)?.addEventListener('click', async () => {
+    for (let i = 0; i < 5; i++) {
+        rootEl?.querySelector(`[data-omx-ch="${i}"]`)?.addEventListener('click', async () => {
             await resumeAudio();
-            channelOn[idx] = !channelOn[idx];
-            syncChannelGains();
+            channelOn[i] = !channelOn[i];
+            refreshToggleVisual();
+            updateVoiceGainsWithAdsr();
         });
-    });
+    }
 
-    rootEl?.querySelector('#ssp-enable-audio')?.addEventListener('click', () => resumeAudio().catch(console.warn));
-
-    rootEl?.querySelector('#ssp-waveform')?.addEventListener('change', () => {
-        updateWaveformType();
+    rootEl?.querySelector('#omx-enable')?.addEventListener('click', () => resumeAudio().catch(console.warn));
+    rootEl?.querySelector('#omx-style')?.addEventListener('change', () => {
+        refreshCustomInputs();
+        applyOscTypeFromStyle();
         vizP5?.redraw();
     });
-
-    rootEl?.querySelector('#ssp-volume')?.addEventListener('input', (e) => {
-        const v = parseFloat(e.target?.value);
-        volumeSliderValue = Number.isFinite(v) ? v : 0.38;
-        setMasterFromUi();
-        const lab = rootEl?.querySelector('#ssp-volume-label');
-        if (lab) lab.textContent = `${Math.round(volumeSliderValue * 100)}%`;
+    rootEl?.querySelector('#omx-fmin')?.addEventListener('input', () => vizP5?.redraw());
+    rootEl?.querySelector('#omx-fmax')?.addEventListener('input', () => vizP5?.redraw());
+    rootEl?.querySelector('#omx-volume')?.addEventListener('input', (e) => {
+        const v = Number(e.target?.value);
+        volumeValue = Number.isFinite(v) ? v : 0.42;
+        const label = rootEl?.querySelector('#omx-volume-label');
+        if (label) label.textContent = `${Math.round(volumeValue * 100)}%`;
+        applyMasterGain();
     });
 }
 
@@ -239,48 +295,64 @@ async function applyPreset() {
         touchMask: computeTouchModeMask()
     });
     const si = document.getElementById('syncIndicator');
-    if (si) si.innerText = '⚡ Sense-Synth：G0–G4 類比';
+    if (si) si.innerText = '⚡ Omni混音機：GPIO 1–5 感測輸入';
 }
 
 function buildDom(root) {
-    const gpioLabels = CHANS.map((logic) => PINS_CONFIG[logic].gpio);
     const toggles = CHANS.map(
-        (logic, idx) => `
-<button type="button" class="ssp-ch-btn ssp-ch-btn--on" data-ssp-ch="${idx}" style="border-color: rgba(${WAVE_COLORS[idx].join(',')},0.45); background: rgba(${WAVE_COLORS[idx].join(',')},0.35);">
-  G${gpioLabels[idx]}
-  <small>CH${logic}</small>
+        (_, idx) => `
+<button type="button" class="omx-toggle omx-toggle--on" data-omx-ch="${idx}">
+  <span class="omx-toggle-title">GPIO ${idx + 1}</span>
+  <span class="omx-toggle-hz" id="omx-hz-${idx}">220 Hz</span>
 </button>`
     ).join('');
 
     root.innerHTML = `
-<div class="ssp-root">
-  <div class="ssp-hero">
-    <div class="ssp-title">Sense-Synth Poly</div>
-    <p class="ssp-sub">五路獨立音高 · ADC 0–4095 → ${F_MIN}–${F_MAX} Hz（讀值愈高 → 頻率愈高）<br>
-    邏輯通道 0–4 · 請在主控台或下方預設啟用對應腳位</p>
+<div class="omx-root">
+  <div class="omx-hero">
+    <div class="omx-title">Omni混音機</div>
+    <p class="omx-sub">五軌即時感測合成器 · 多音同時輸出 · 教室友善音色</p>
   </div>
-  <div class="ssp-grid">
-    <div class="ssp-card">
-      <h3>聲部開關</h3>
-      <div class="ssp-toggles">${toggles}</div>
-      <button type="button" id="ssp-enable-audio" class="ssp-enable-audio">輕觸以啟用音效（瀏覽器要求）</button>
-      <div class="ssp-controls-row">
-        <label>波形</label>
-        <select id="ssp-waveform">
-          <option value="sine" selected>正弦</option>
-          <option value="triangle">三角</option>
+
+  <div class="omx-grid">
+    <div class="omx-card">
+      <h3>音色與混音</h3>
+      <div class="omx-row">
+        <label for="omx-style">音色風格</label>
+        <select id="omx-style" class="omx-select">
+          <option value="elegant">優美（220–660 Hz）</option>
+          <option value="magical">魔幻（880–3500 Hz）</option>
+          <option value="custom">自訂</option>
         </select>
-        <div class="ssp-vol">
-          <label for="ssp-volume">音量</label>
-          <input type="range" id="ssp-volume" min="0" max="1" step="0.02" value="${volumeSliderValue}" />
-          <span id="ssp-volume-label">${Math.round(volumeSliderValue * 100)}%</span>
+      </div>
+
+      <div id="omx-custom-wrap" class="omx-custom hidden">
+        <div class="omx-row">
+          <label for="omx-fmin">下限頻率 (Hz)</label>
+          <input id="omx-fmin" class="omx-input" type="number" value="220" min="20" step="1" />
+        </div>
+        <div class="omx-row">
+          <label for="omx-fmax">上限頻率 (Hz)</label>
+          <input id="omx-fmax" class="omx-input" type="number" value="1200" min="21" step="1" />
         </div>
       </div>
-      <p class="ssp-audio-hint">建議教室內先放低音量；五路齊開時仍經由 GainNode 限幅。</p>
+
+      <div class="omx-row">
+        <label for="omx-volume">主音量</label>
+        <div class="omx-volume">
+          <input id="omx-volume" type="range" min="0" max="1" step="0.02" value="${volumeValue}" />
+          <span id="omx-volume-label">${Math.round(volumeValue * 100)}%</span>
+        </div>
+      </div>
+
+      <div class="omx-toggles">${toggles}</div>
+      <button id="omx-enable" type="button" class="omx-enable">點擊啟用音訊（瀏覽器限制）</button>
+      <p class="omx-hint">已加入 50ms 攻擊/釋放包絡與 Noise Gate，減少切換爆音與感測抖動飄音。</p>
     </div>
-    <div class="ssp-card">
-      <h3>即時感測示波（五軌疊加）</h3>
-      <div id="ssp-canvas-host" class="ssp-viz"></div>
+
+    <div class="omx-card">
+      <h3>示波器（五軌重疊）</h3>
+      <div id="omx-canvas" class="omx-viz"></div>
     </div>
   </div>
 </div>`;
@@ -292,9 +364,11 @@ export async function mount(root) {
     injectCss();
     buildDom(root);
     wireUi();
-    refreshToggleUi();
+    refreshCustomInputs();
+    refreshToggleVisual();
+    refreshHzLabels();
     await loadP5();
-    const host = root.querySelector('#ssp-canvas-host');
+    const host = root.querySelector('#omx-canvas');
     if (host) mountP5(host);
     dataHandler = (ev) => onData(ev);
     window.addEventListener('omnisense:data', dataHandler);
@@ -304,7 +378,7 @@ export async function onConnected() {
     await applyPreset();
 }
 
-async function teardownSynth() {
+async function teardown() {
     window.removeEventListener('omnisense:data', dataHandler);
     dataHandler = null;
 
@@ -323,6 +397,7 @@ async function teardownSynth() {
         }
     }
     voices = [];
+
     if (masterGain) {
         try {
             masterGain.disconnect();
@@ -331,6 +406,7 @@ async function teardownSynth() {
         }
         masterGain = null;
     }
+
     if (audioCtx) {
         try {
             await audioCtx.close();
@@ -339,6 +415,7 @@ async function teardownSynth() {
         }
         audioCtx = null;
     }
+    isAudioReady = false;
 
     if (rootEl) {
         rootEl.innerHTML = '';
@@ -347,7 +424,7 @@ async function teardownSynth() {
 }
 
 export async function cleanup() {
-    await teardownSynth();
+    await teardown();
 }
 
 export async function unmount() {
