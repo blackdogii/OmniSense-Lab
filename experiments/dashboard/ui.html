@@ -1,5 +1,5 @@
-<div class="grid grid-cols-1 lg:grid-cols-4 gap-3 lg:gap-6">
-    <div class="lg:col-span-1 flex flex-col gap-3 min-w-0">
+<div id="dashboardRoot" class="grid grid-cols-1 lg:grid-cols-4 gap-3 lg:gap-6">
+    <div id="dashboardSidebar" class="lg:col-span-1 flex flex-col gap-3 min-w-0">
         <div class="glass-card p-2 sm:p-2.5 rounded-lg shadow-lg border border-slate-600/25 ring-1 ring-white/[0.04]">
             <div class="flex items-center justify-between gap-2 pb-1.5 mb-1.5 border-b border-slate-700/50">
                 <div class="flex items-center gap-1 min-w-0">
@@ -72,9 +72,17 @@
                     <h2 id="waveSectionTitle" class="text-base sm:text-lg font-bold text-slate-100">即時感測波形</h2>
                 </div>
                 <div id="toolbarActions" class="flex flex-wrap gap-2">
+                    <button type="button" id="sidebarToggleBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50" title="收合或展開側欄">
+                        <i data-lucide="panel-left-close" class="w-3.5 h-3.5"></i>
+                        <span>側欄</span>
+                    </button>
                     <button type="button" id="waveAutoBtn" class="text-[10px] font-semibold bg-cyan-700/70 px-3 py-2 rounded-lg hover:bg-cyan-600/80 min-h-[38px] inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50" title="自動調整上下限（開關）" aria-pressed="true">
                         <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
                         <span>自動調整上下限</span>
+                    </button>
+                    <button type="button" id="rawOverlayBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50" aria-pressed="false">
+                        <i data-lucide="activity" class="w-3.5 h-3.5"></i>
+                        <span>顯示原始數據</span>
                     </button>
                     <button type="button" id="clearBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50">清除</button>
                     <button type="button" id="exportBtn" class="text-[10px] font-semibold bg-emerald-600/85 px-3 py-2 rounded-lg hover:bg-emerald-500 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">導出 CSV</button>
@@ -95,7 +103,11 @@
                 </div>
             </div>
             <div id="canvasParent" class="canvas-container w-full aspect-[16/10] sm:aspect-[21/9] bg-slate-950 rounded-lg border border-slate-800/80 overflow-hidden"></div>
+            <div class="mt-2 text-[10px] text-slate-500 flex flex-wrap gap-x-4 gap-y-1">
+                <span id="actualFreqLabel">實測頻率：-- Hz</span>
+                <span id="linkQualityLabel">連線品質：--</span>
+            </div>
         </div>
-        <div class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2" id="dataCards"></div>
+        <div id="dashboardCardsWrap" class="grid grid-cols-2 sm:grid-cols-3 xl:grid-cols-4 gap-2"></div>
     </div>
 </div>

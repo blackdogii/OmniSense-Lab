@@ -1,5 +1,6 @@
 ﻿/**
- * 實驗：系統主控台（腳位診斷、波形、p5）
+ * Dashboard experiment: diagnostics + oscilloscope.
+ * UI text: Traditional Chinese. Code/comments: English.
  */
 
 import { omni, PINS_CONFIG, MA_WINDOW, FLOATING_ADC_IDS } from '../../web/core/state.js';
@@ -11,7 +12,6 @@ import * as ble from '../../web/core/ble.js';
 
 const ANALOG_FOUR_IDS = [0, 1, 3, 4];
 const G2_ID = 2;
-/** 具「一般／上拉／觸控」三態的類比腳（含 G2） */
 const ANALOG_MODE_IDS = [0, 1, 2, 3, 4];
 const DIGITAL_IDS = [5, 6, 7, 8];
 const DIGITAL_PULL_BITS = 0x1e0;
@@ -31,14 +31,52 @@ const WAVE_RGB = [
     [249, 115, 22]
 ];
 
-let omniP5 = null;
+const AUTO_RANGE_WINDOW = 80;
+const AUTO_RANGE_MIN_SPAN = 140;
+const RAW_OVERLAY_ALPHA = 80;
+const CHART_RANGE_US = 5_000_000;
+const VREF = 3.3;
+
 let rootEl = null;
+let omniP5 = null;
+let styleTag = null;
+
 let waveAutoScale = true;
 let waveAutoLo = 0;
 let waveAutoHi = 4095;
+let showRawOverlay = false;
+let sidebarCollapsed = false;
+let landscapeScopeMode = false;
 
-const AUTO_RANGE_WINDOW = 80;
-const AUTO_RANGE_MIN_SPAN = 140;
+const rawPacketHistory = [];
+const crosshair = { active: false, x: 0, y: 0 };
+let canvasHostEl = null;
+let canvasPointerMove = null;
+let canvasPointerLeave = null;
+
+let prevTsUs = null;
+let droppedPackets = 0;
+let totalPacketsForQuality = 0;
+let smoothHz = 0;
+
+let dataListener = null;
+
+function injectDashboardStyles() {
+    if (styleTag) return;
+    styleTag = document.createElement('style');
+    styleTag.textContent = `
+      .dash-float-pulse{animation:dashPulse 1.5s ease-in-out infinite;}
+      @keyframes dashPulse{
+        0%{box-shadow:0 0 0 0 rgba(251,191,36,.00)}
+        50%{box-shadow:0 0 0 2px rgba(251,191,36,.30),0 0 18px rgba(251,191,36,.14)}
+        100%{box-shadow:0 0 0 0 rgba(251,191,36,.00)}
+      }
+      .dash-landscape-scope #dashboardSidebar{display:none!important;}
+      .dash-landscape-scope #dashboardCardsWrap{display:none!important;}
+      .dash-landscape-scope #canvasParent{aspect-ratio:16/7!important;min-height:66vh;}
+    `;
+    document.head.appendChild(styleTag);
+}
 
 function createKalman1D(processNoise, measNoise) {
     let x = null;
@@ -47,10 +85,10 @@ function createKalman1D(processNoise, measNoise) {
     const R = measNoise;
     return function (z) {
         if (x === null) x = z;
-        P = P + Q;
+        P += Q;
         const K = P / (P + R);
-        x = x + K * (z - x);
-        P = (1 - K) * P;
+        x += K * (z - x);
+        P *= 1 - K;
         return Math.round(x);
     };
 }
@@ -80,6 +118,11 @@ function gpioNum(logicalId) {
     return PINS_CONFIG[logicalId].gpio;
 }
 
+function markDirty() {
+    const si = document.getElementById('syncIndicator');
+    if (si) si.innerText = '⚠️ 設定已變更，請按「應用配置」';
+}
+
 function getAnalogModeKey(id) {
     if (omni.channelMode[id] === 'touch') return 'touch';
     if ((omni.pullupMask >> id) & 1) return 'pullup';
@@ -91,32 +134,21 @@ function setModeButtonIcon(modeBtn, id) {
     const key = getAnalogModeKey(id);
     modeBtn.innerHTML = `<i data-lucide="${MODE_ICON[key]}" class="w-[14px] h-[14px]"></i>`;
     modeBtn.title = MODE_TITLE[key];
-    if (window.lucide) window.lucide.createIcons();
 }
 
-function cycleAnalogMode(id) {
-    const key = getAnalogModeKey(id);
-    if (key === 'normal') {
-        omni.channelMode[id] = 'adc';
-        omni.pullupMask |= 1 << id;
-    } else if (key === 'pullup') {
-        omni.channelMode[id] = 'touch';
-        omni.pullupMask |= 1 << id;
-    } else {
-        omni.channelMode[id] = 'adc';
-        omni.pullupMask &= ~(1 << id);
-    }
-    omni.pullupMask &= 0x01ff;
-    omni.pullupMask |= DIGITAL_PULL_BITS;
-    setModeButtonIcon(document.getElementById(`mode-${id}`), id);
-    updateCardTitles();
-    updateWaveTitle();
-    markDirty();
+function getWaveColorCss(id, alpha = 1) {
+    const [r, g, b] = WAVE_RGB[id];
+    return `rgba(${r},${g},${b},${alpha})`;
 }
 
-function markDirty() {
-    const si = document.getElementById('syncIndicator');
-    if (si) si.innerText = '⚠️ 設定已變更，請按「應用配置」';
+function updateCardColorStyle(id) {
+    const card = document.getElementById(`card-${id}`);
+    const title = document.getElementById(`card-title-${id}`);
+    if (!card || !title) return;
+    const borderColor = getWaveColorCss(id, 0.48);
+    const titleColor = getWaveColorCss(id, 0.9);
+    card.style.borderColor = borderColor;
+    title.style.color = titleColor;
 }
 
 function updateCardTitles() {
@@ -135,13 +167,13 @@ function updateCardTitles() {
             t.textContent = `GPIO ${g} · 類比`;
             u.textContent = (omni.pullupMask >> id) & 1 ? '12-bit（上拉）' : '12-bit';
         }
+        updateCardColorStyle(id);
     }
 }
 
 function updateWaveTitle() {
     const el = document.getElementById('waveSectionTitle');
-    if (!el) return;
-    el.textContent = '即時感測波形';
+    if (el) el.textContent = '即時感測波形';
 }
 
 function buildCsvText() {
@@ -151,9 +183,7 @@ function buildCsvText() {
     for (let r = 0; r < omni.packetHistory.length; r++) {
         const pkt = omni.packetHistory[r];
         const row = [pkt.tsUs];
-        for (let i = 0; i < 9; i++) {
-            row.push(pkt.values[i] != null ? pkt.values[i] : '');
-        }
+        for (let i = 0; i < 9; i++) row.push(pkt.values[i] != null ? pkt.values[i] : '');
         lines.push(row.join(','));
     }
     return '\ufeff' + lines.join('\n');
@@ -184,8 +214,7 @@ async function exportCsv(ev) {
             return;
         }
     } catch (e) {
-        if (e && e.name === 'AbortError') return;
-        console.warn('showSaveFilePicker', e);
+        if (e?.name === 'AbortError') return;
     }
 
     try {
@@ -195,8 +224,7 @@ async function exportCsv(ev) {
             return;
         }
     } catch (e) {
-        if (e && e.name === 'AbortError') return;
-        console.warn('navigator.share', e);
+        if (e?.name === 'AbortError') return;
     }
 
     const url = URL.createObjectURL(blob);
@@ -217,14 +245,24 @@ function clearWaveform(ev) {
     if (ev) ev.preventDefault();
     clearBleQueue();
     omni.packetHistory.length = 0;
+    rawPacketHistory.length = 0;
     resetFloatingBuffers();
     rebuildChannelFilters();
+    prevTsUs = null;
+    droppedPackets = 0;
+    totalPacketsForQuality = 0;
+    smoothHz = 0;
+    updateConnectionDiagnostics();
     const el = document.getElementById('syncIndicator');
     if (el) el.innerText = '已清除波形緩衝';
 }
 
 async function apply() {
     if (!ble.getRxChar()) return;
+    const btn = document.getElementById('applyBtn');
+    const originalText = btn?.innerText || '應用配置';
+    const originalClass = btn?.className || '';
+
     const f = parseInt(document.getElementById('freqRange').value, 10);
     const r = parseInt(document.getElementById('resSelect').value, 10);
     const am = omni.activeMask & 0x01ff;
@@ -234,9 +272,24 @@ async function apply() {
     await applyDeviceConfig({ freq: f, res: r, activeMask: am, pullupMask: pu, touchMask: tm });
     omni.lastFreq = f;
     omni.lastRes = r;
+
     const si = document.getElementById('syncIndicator');
     if (si) si.innerText = '⚡ 同步完成';
     updateWaveTitle();
+
+    if (btn) {
+        btn.innerText = '✓ 已同步';
+        btn.className = btn.className
+            .replace('from-cyan-600', 'from-emerald-600')
+            .replace('to-blue-600', 'to-emerald-500')
+            .replace('hover:from-cyan-500', 'hover:from-emerald-500')
+            .replace('hover:to-blue-500', 'hover:to-emerald-400');
+        window.setTimeout(() => {
+            if (!btn) return;
+            btn.innerText = originalText;
+            btn.className = originalClass;
+        }, 1200);
+    }
 }
 
 function syncPinButtonStyle(id, active) {
@@ -265,21 +318,37 @@ function syncPinUiFromState() {
         const active = (omni.activeMask >> id) & 1;
         syncPinButtonStyle(id, active);
         updateCardVisibility(id);
-        if (ANALOG_MODE_IDS.includes(id)) {
-            setModeButtonIcon(document.getElementById(`mode-${id}`), id);
-        }
+        if (ANALOG_MODE_IDS.includes(id)) setModeButtonIcon(document.getElementById(`mode-${id}`), id);
     }
 }
 
 function togglePin(id) {
     omni.activeMask ^= 1 << id;
     omni.activeMask &= 0x01ff;
-    if (DIGITAL_IDS.includes(id)) {
-        omni.channelMode[id] = 'dig';
-    }
+    if (DIGITAL_IDS.includes(id)) omni.channelMode[id] = 'dig';
     const active = (omni.activeMask >> id) & 1;
     syncPinButtonStyle(id, active);
     updateCardVisibility(id);
+    markDirty();
+}
+
+function cycleAnalogMode(id) {
+    const key = getAnalogModeKey(id);
+    if (key === 'normal') {
+        omni.channelMode[id] = 'adc';
+        omni.pullupMask |= 1 << id;
+    } else if (key === 'pullup') {
+        omni.channelMode[id] = 'touch';
+        omni.pullupMask |= 1 << id;
+    } else {
+        omni.channelMode[id] = 'adc';
+        omni.pullupMask &= ~(1 << id);
+    }
+    omni.pullupMask &= 0x01ff;
+    omni.pullupMask |= DIGITAL_PULL_BITS;
+    setModeButtonIcon(document.getElementById(`mode-${id}`), id);
+    updateCardTitles();
+    updateWaveTitle();
     markDirty();
 }
 
@@ -294,8 +363,7 @@ function loadP5() {
     });
 }
 
-/** 讀取縱軸上下限滑桿，保證 lo &lt; hi 且落在 0～4095 */
-function getWaveYRange() {
+function getWaveYRangeManual() {
     const minEl = document.getElementById('waveYMin');
     const maxEl = document.getElementById('waveYMax');
     let lo = minEl ? parseInt(minEl.value, 10) : 0;
@@ -316,7 +384,7 @@ function getWaveYRange() {
 }
 
 function syncWaveZoomLabels() {
-    const { lo, hi } = getWaveYRange();
+    const { lo, hi } = getWaveYRangeManual();
     const l = document.getElementById('waveYMinLabel');
     const h = document.getElementById('waveYMaxLabel');
     if (l) l.textContent = String(lo);
@@ -336,13 +404,6 @@ function updateWaveZoomUiVisibility() {
     }
 }
 
-/**
- * Auto-range algorithm:
- * 1) collect recent active-channel samples
- * 2) use 5th/95th percentile to reject outliers
- * 3) add adaptive padding
- * 4) smooth limits (fast expand, slow shrink) to reduce jitter
- */
 function getAutoWaveRange(packetHistory) {
     const start = Math.max(0, packetHistory.length - AUTO_RANGE_WINDOW);
     const vals = [];
@@ -356,7 +417,6 @@ function getAutoWaveRange(packetHistory) {
         }
     }
     if (vals.length < 8) return { lo: waveAutoLo, hi: waveAutoHi };
-
     vals.sort((a, b) => a - b);
     const n = vals.length - 1;
     const qLo = vals[Math.max(0, Math.floor(n * 0.05))];
@@ -370,7 +430,6 @@ function getAutoWaveRange(packetHistory) {
         targetLo = Math.max(0, mid - AUTO_RANGE_MIN_SPAN * 0.5);
         targetHi = Math.min(4095, mid + AUTO_RANGE_MIN_SPAN * 0.5);
     }
-
     const loAlpha = targetLo < waveAutoLo ? 0.28 : 0.08;
     const hiAlpha = targetHi > waveAutoHi ? 0.28 : 0.08;
     waveAutoLo += (targetLo - waveAutoLo) * loAlpha;
@@ -381,8 +440,7 @@ function getAutoWaveRange(packetHistory) {
 
 function getCurrentWaveRange(packetHistory) {
     if (waveAutoScale) return getAutoWaveRange(packetHistory);
-    const m = getWaveYRange();
-    return { lo: m.lo, hi: m.hi };
+    return getWaveYRangeManual();
 }
 
 function wireWaveZoomControls() {
@@ -390,23 +448,23 @@ function wireWaveZoomControls() {
     const maxEl = document.getElementById('waveYMax');
     const onChange = (which) => {
         if (which === 'min' && minEl && maxEl) {
-            let lo = parseInt(minEl.value, 10);
-            let hi = parseInt(maxEl.value, 10);
+            const lo = parseInt(minEl.value, 10);
+            const hi = parseInt(maxEl.value, 10);
             if (lo >= hi) maxEl.value = String(Math.min(4095, lo + 1));
         } else if (which === 'max' && minEl && maxEl) {
-            let lo = parseInt(minEl.value, 10);
-            let hi = parseInt(maxEl.value, 10);
+            const lo = parseInt(minEl.value, 10);
+            const hi = parseInt(maxEl.value, 10);
             if (hi <= lo) minEl.value = String(Math.max(0, hi - 1));
         }
         syncWaveZoomLabels();
-        if (omniP5) omniP5.redraw();
+        omniP5?.redraw();
     };
     minEl?.addEventListener('input', () => onChange('min'));
     maxEl?.addEventListener('input', () => onChange('max'));
     document.getElementById('waveAutoBtn')?.addEventListener('click', () => {
         waveAutoScale = !waveAutoScale;
         updateWaveZoomUiVisibility();
-        if (omniP5) omniP5.redraw();
+        omniP5?.redraw();
     });
     document.getElementById('waveZoomResetBtn')?.addEventListener('click', () => {
         if (minEl) minEl.value = '0';
@@ -414,10 +472,158 @@ function wireWaveZoomControls() {
         waveAutoLo = 0;
         waveAutoHi = 4095;
         syncWaveZoomLabels();
-        if (omniP5) omniP5.redraw();
+        omniP5?.redraw();
+    });
+    document.getElementById('rawOverlayBtn')?.addEventListener('click', () => {
+        showRawOverlay = !showRawOverlay;
+        const btn = document.getElementById('rawOverlayBtn');
+        if (btn) {
+            btn.setAttribute('aria-pressed', String(showRawOverlay));
+            btn.classList.toggle('bg-cyan-700/70', showRawOverlay);
+            btn.classList.toggle('hover:bg-cyan-600/80', showRawOverlay);
+            btn.classList.toggle('bg-slate-700/60', !showRawOverlay);
+            btn.classList.toggle('hover:bg-slate-600/80', !showRawOverlay);
+        }
+        omniP5?.redraw();
     });
     syncWaveZoomLabels();
     updateWaveZoomUiVisibility();
+}
+
+function toVoltage(v) {
+    return (v / 4095) * VREF;
+}
+
+function formatTimeFromRight(usOffset) {
+    return `${(usOffset / 1_000_000).toFixed(1)}s`;
+}
+
+function drawAxesAndGrid(p, chart) {
+    const { left, right, top, bottom, yLo, yHi } = chart;
+    p.stroke(51, 65, 85);
+    p.strokeWeight(1);
+    p.line(left, top, left, bottom);
+    p.line(right, top, right, bottom);
+    p.line(left, bottom, right, bottom);
+
+    p.fill(148, 163, 184);
+    p.noStroke();
+    p.textSize(9);
+    p.textAlign(p.LEFT, p.CENTER);
+    p.text(`${Math.round(yHi)}`, left + 2, top + 8);
+    p.text(`${Math.round(yLo)}`, left + 2, bottom - 8);
+    p.textAlign(p.RIGHT, p.CENTER);
+    p.text(`${toVoltage(yHi).toFixed(2)}V`, right - 2, top + 8);
+    p.text(`${toVoltage(yLo).toFixed(2)}V`, right - 2, bottom - 8);
+
+    p.textAlign(p.CENTER, p.TOP);
+    for (let i = 0; i <= 5; i++) {
+        const x = p.map(i, 0, 5, left, right);
+        p.stroke(51, 65, 85, 120);
+        p.line(x, top, x, bottom);
+        p.noStroke();
+        const sec = -5 + i;
+        p.fill(100, 116, 139);
+        p.text(`${sec}s`, x, bottom + 3);
+    }
+}
+
+function mapTsToX(ts, endTs, left, right) {
+    const dt = CHART_RANGE_US - u32Delta(endTs >>> 0, ts >>> 0);
+    return left + (dt / CHART_RANGE_US) * (right - left);
+}
+
+function wireCanvasPointer() {
+    const c = canvasHostEl;
+    if (!c) return;
+    canvasPointerMove = (ev) => {
+        const rect = c.getBoundingClientRect();
+        const px = ev.clientX ?? ev.touches?.[0]?.clientX;
+        const py = ev.clientY ?? ev.touches?.[0]?.clientY;
+        if (px == null || py == null) return;
+        crosshair.active = true;
+        crosshair.x = px - rect.left;
+        crosshair.y = py - rect.top;
+        omniP5?.redraw();
+    };
+    canvasPointerLeave = () => {
+        crosshair.active = false;
+        omniP5?.redraw();
+    };
+    c.addEventListener('pointermove', canvasPointerMove);
+    c.addEventListener('pointerleave', canvasPointerLeave);
+    c.addEventListener('touchmove', canvasPointerMove, { passive: true });
+    c.addEventListener('touchend', canvasPointerLeave, { passive: true });
+}
+
+function unwireCanvasPointer() {
+    const c = canvasHostEl;
+    if (!c) return;
+    if (canvasPointerMove) {
+        c.removeEventListener('pointermove', canvasPointerMove);
+        c.removeEventListener('touchmove', canvasPointerMove);
+    }
+    if (canvasPointerLeave) {
+        c.removeEventListener('pointerleave', canvasPointerLeave);
+        c.removeEventListener('touchend', canvasPointerLeave);
+    }
+    canvasPointerMove = null;
+    canvasPointerLeave = null;
+}
+
+function drawCrosshair(p, chart, packetHistory) {
+    if (!crosshair.active || packetHistory.length < 2) return;
+    const { left, right, top, bottom, yLo, yHi } = chart;
+    const cx = Math.max(left, Math.min(right, crosshair.x));
+    const cy = Math.max(top, Math.min(bottom, crosshair.y));
+    const endTs = packetHistory[packetHistory.length - 1].tsUs >>> 0;
+
+    p.stroke(148, 163, 184, 160);
+    p.strokeWeight(1);
+    p.line(cx, top, cx, bottom);
+    p.line(left, cy, right, cy);
+
+    const tNorm = (cx - left) / Math.max(right - left, 1);
+    const targetTsOffset = (1 - tNorm) * CHART_RANGE_US;
+    const targetTs = (endTs - targetTsOffset) >>> 0;
+    let nearest = packetHistory[packetHistory.length - 1];
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = packetHistory.length - 1; i >= 0; i--) {
+        const pkt = packetHistory[i];
+        const d = Math.abs(u32Delta(pkt.tsUs >>> 0, targetTs));
+        if (d < best) {
+            best = d;
+            nearest = pkt;
+        }
+    }
+
+    let sample = null;
+    for (let i = 0; i < 9; i++) {
+        if (!((omni.activeMask >> i) & 1)) continue;
+        if (nearest.values[i] != null) {
+            sample = { id: i, v: nearest.values[i] };
+            break;
+        }
+    }
+    if (!sample) return;
+    const rel = -u32Delta(endTs, nearest.tsUs >>> 0);
+    const txt = `時間 ${formatTimeFromRight(rel)}  數值 ${sample.v}  電壓 ${toVoltage(sample.v).toFixed(2)}V`;
+    const tw = p.textWidth(txt) + 10;
+    const th = 18;
+    const tx = Math.min(right - tw - 2, Math.max(left + 2, cx + 8));
+    const ty = Math.max(top + 2, cy - th - 6);
+    p.noStroke();
+    p.fill(15, 23, 42, 225);
+    p.rect(tx, ty, tw, th, 4);
+    p.fill(226, 232, 240);
+    p.textSize(9);
+    p.textAlign(p.LEFT, p.TOP);
+    p.text(txt, tx + 5, ty + 4);
+
+    const sampleY = p.map(sample.v, yLo, yHi, bottom, top);
+    p.noStroke();
+    p.fill(...WAVE_RGB[sample.id], 220);
+    p.circle(cx, sampleY, 6);
 }
 
 function wireP5() {
@@ -433,69 +639,143 @@ function wireP5() {
             p.background(10, 15, 30);
             if (packetHistory.length < 2) return;
             const { lo: yLo, hi: yHi } = getCurrentWaveRange(packetHistory);
-            const ySpan = Math.max(yHi - yLo, 1);
-            const t0 = packetHistory[0].tsUs >>> 0;
-            const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;
-            let tw = u32Delta(t1, t0);
-            if (tw === 0) tw = 1;
-            const plotTop = 8;
-            const plotBottom = p.height - 8;
-            p.strokeWeight(2);
+            const endTs = packetHistory[packetHistory.length - 1].tsUs >>> 0;
+            const chart = {
+                left: 42,
+                right: p.width - 44,
+                top: 10,
+                bottom: p.height - 24,
+                yLo,
+                yHi
+            };
+            drawAxesAndGrid(p, chart);
+
             for (let i = 0; i < 9; i++) {
                 if (!((omni.activeMask >> i) & 1)) continue;
                 const [cr, cg, cb] = WAVE_RGB[i];
+
+                if (showRawOverlay) {
+                    p.stroke(cr, cg, cb, RAW_OVERLAY_ALPHA);
+                    p.strokeWeight(1);
+                    p.noFill();
+                    p.beginShape();
+                    for (let k = 0; k < rawPacketHistory.length; k++) {
+                        const pkt = rawPacketHistory[k];
+                        if (pkt.values[i] == null) continue;
+                        const x = mapTsToX(pkt.tsUs, endTs, chart.left, chart.right);
+                        const y = p.map(pkt.values[i], yLo, yHi, chart.bottom, chart.top);
+                        p.vertex(x, y);
+                    }
+                    p.endShape();
+                }
+
                 p.stroke(cr, cg, cb);
+                p.strokeWeight(2);
                 p.noFill();
                 p.beginShape();
                 for (let k = 0; k < packetHistory.length; k++) {
                     const pkt = packetHistory[k];
                     if (pkt.values[i] == null) continue;
-                    const dx = u32Delta(pkt.tsUs >>> 0, t0);
-                    const x = p.map(dx, 0, tw, 0, p.width);
-                    const raw = pkt.values[i];
-                    const yn = p.map(raw, yLo, yLo + ySpan, plotBottom, plotTop);
-                    const y = p.constrain(yn, plotTop, plotBottom);
+                    const x = mapTsToX(pkt.tsUs, endTs, chart.left, chart.right);
+                    const y = p.map(pkt.values[i], yLo, yHi, chart.bottom, chart.top);
                     p.vertex(x, y);
                 }
                 p.endShape();
             }
+
+            drawCrosshair(p, chart, packetHistory);
         };
     });
 }
 
-function onFrameAfterProcess() {
-    if (omni.currentViewId !== 'dashboard') return;
-    if (omniP5) omniP5.redraw();
+function updateConnectionDiagnostics() {
+    const freqEl = document.getElementById('actualFreqLabel');
+    const qEl = document.getElementById('linkQualityLabel');
+    const freqPill = document.getElementById('actualFpsPill');
+    const qPill = document.getElementById('connQualityPill');
+    const hzText = `實測頻率：${smoothHz > 0 ? smoothHz.toFixed(1) : '--'} Hz`;
+    let qualityText = '連線品質：--';
+    if (freqEl) freqEl.innerText = `實測頻率：${smoothHz > 0 ? smoothHz.toFixed(1) : '--'} Hz`;
+    if (qEl) {
+        const loss = totalPacketsForQuality > 0 ? droppedPackets / totalPacketsForQuality : 0;
+        let label = '優';
+        if (loss > 0.08) label = '差';
+        else if (loss > 0.03) label = '中';
+        qualityText = `連線品質：${label}${totalPacketsForQuality > 0 ? `（遺失 ${(loss * 100).toFixed(1)}%）` : ''}`;
+        qEl.innerText = qualityText;
+    }
+    if (freqPill) freqPill.innerText = hzText;
+    if (qPill) qPill.innerText = qualityText;
 }
 
-let dataListener = null;
+function updateSidebarLayout() {
+    const sidebar = document.getElementById('dashboardSidebar');
+    const cardsWrap = document.getElementById('dashboardCardsWrap');
+    if (sidebar) sidebar.classList.toggle('hidden', sidebarCollapsed && !landscapeScopeMode);
+    if (cardsWrap) cardsWrap.classList.toggle('hidden', landscapeScopeMode);
+}
+
+function evaluateLandscapeScopeMode() {
+    landscapeScopeMode = window.matchMedia('(orientation: landscape)').matches && window.innerHeight <= 560;
+    const root = document.getElementById('dashboardRoot');
+    if (root) root.classList.toggle('dash-landscape-scope', landscapeScopeMode);
+    updateSidebarLayout();
+    omniP5?.redraw();
+}
 
 function attachDataListener() {
     if (dataListener) return;
     dataListener = (ev) => {
         if (omni.currentViewId !== 'dashboard') return;
+        const ch = ev.detail.channels;
+
+        const rawRow = { tsUs: ev.detail.tsUs, values: Array(9).fill(null) };
+        for (let i = 0; i < 9; i++) {
+            if (ch[i]) rawRow.values[i] = ch[i].raw;
+        }
+        rawPacketHistory.push(rawRow);
+        if (rawPacketHistory.length > 200) rawPacketHistory.shift();
+
+        if (prevTsUs != null) {
+            const dt = u32Delta(ev.detail.tsUs >>> 0, prevTsUs >>> 0);
+            if (dt > 0) {
+                const hz = 1_000_000 / dt;
+                smoothHz = smoothHz <= 0 ? hz : smoothHz * 0.84 + hz * 0.16;
+            }
+            const expected = 1_000_000 / Math.max(1, omni.lastFreq || 50);
+            const missing = Math.max(0, Math.round(dt / expected) - 1);
+            droppedPackets += missing;
+            totalPacketsForQuality += 1 + missing;
+        }
+        prevTsUs = ev.detail.tsUs;
+        updateConnectionDiagnostics();
+
         const lowFps = omni.measuredFps < 30;
         omni.domFrame++;
-        const ch = ev.detail.channels;
         for (let i = 0; i < 9; i++) {
             if (!ch[i]) continue;
             if (lowFps && ((omni.domFrame + i) & 1)) continue;
             const card = document.getElementById(`card-${i}`);
-            if (card && card.classList.contains('hidden')) continue;
+            if (card?.classList.contains('hidden')) continue;
+
             const el = document.getElementById(`val-${i}`);
             if (el) el.innerText = ch[i].filtered;
+
             const hint = document.getElementById(`float-hint-${i}`);
             if (!hint) continue;
             if (omni.channelMode[i] === 'touch') {
                 hint.classList.remove('hidden');
                 hint.innerText = '觸控';
                 hint.className = 'text-[8px] text-cyan-400/90 mt-1 min-h-[1rem]';
+                card?.classList.remove('dash-float-pulse');
             } else if (FLOATING_ADC_IDS.has(i) && ch[i].floating) {
                 hint.classList.remove('hidden');
                 hint.innerText = '可能懸空';
                 hint.className = 'text-[8px] text-amber-400/90 mt-1 min-h-[1rem]';
+                card?.classList.add('dash-float-pulse');
             } else {
                 hint.classList.add('hidden');
+                card?.classList.remove('dash-float-pulse');
             }
         }
     };
@@ -503,10 +783,9 @@ function attachDataListener() {
 }
 
 function detachDataListener() {
-    if (dataListener) {
-        window.removeEventListener('omnisense:data', dataListener);
-        dataListener = null;
-    }
+    if (!dataListener) return;
+    window.removeEventListener('omnisense:data', dataListener);
+    dataListener = null;
 }
 
 function buildAnalogRow(id) {
@@ -533,16 +812,14 @@ function buildAnalogRow(id) {
 }
 
 function initDashboardUi() {
+    injectDashboardStyles();
     omni.pullupMask = (omni.pullupMask & 0x01ff) | DIGITAL_PULL_BITS;
     DIGITAL_IDS.forEach((id) => {
         omni.channelMode[id] = 'dig';
     });
 
     const a4 = document.getElementById('pins-analog-four');
-    ANALOG_FOUR_IDS.forEach((id) => {
-        a4.appendChild(buildAnalogRow(id));
-    });
-
+    ANALOG_FOUR_IDS.forEach((id) => a4.appendChild(buildAnalogRow(id)));
     const g2 = document.getElementById('pins-g2');
     g2.appendChild(buildAnalogRow(G2_ID));
 
@@ -559,12 +836,12 @@ function initDashboardUi() {
         dig.appendChild(b);
     });
 
-    const cards = document.getElementById('dataCards');
+    const cards = document.getElementById('dashboardCardsWrap');
     for (let id = 0; id < 9; id++) {
         const c = document.createElement('div');
         c.id = `card-${id}`;
-        c.className = 'glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all';
-        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black text-slate-500 uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-xl sm:text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
+        c.className = 'glass-card p-3 sm:p-4 rounded-xl sm:rounded-2xl transition-all border border-slate-700/50';
+        c.innerHTML = `<p id="card-title-${id}" class="text-[9px] font-black uppercase">GPIO ${gpioNum(id)}</p><p id="val-${id}" class="text-xl sm:text-2xl font-mono font-bold text-slate-100">---</p><p id="card-unit-${id}" class="text-[8px] text-slate-600 mt-0.5">—</p><p id="float-hint-${id}" class="text-[8px] text-amber-400/90 mt-1 min-h-[1rem] hidden"></p>`;
         cards.appendChild(c);
     }
 
@@ -581,10 +858,22 @@ function initDashboardUi() {
     document.getElementById('applyBtn').addEventListener('click', apply, { passive: false });
     document.getElementById('clearBtn').addEventListener('click', clearWaveform, { passive: false });
     document.getElementById('exportBtn').addEventListener('click', exportCsv, { passive: false });
-    wireWaveZoomControls();
+    document.getElementById('sidebarToggleBtn')?.addEventListener('click', () => {
+        sidebarCollapsed = !sidebarCollapsed;
+        updateSidebarLayout();
+    });
     document.getElementById('freqRange').addEventListener('input', (e) => {
         document.getElementById('freqLabel').innerText = e.target.value;
     });
+    wireWaveZoomControls();
+    evaluateLandscapeScopeMode();
+    window.addEventListener('resize', evaluateLandscapeScopeMode);
+    updateConnectionDiagnostics();
+}
+
+function onFrameAfterProcess() {
+    if (omni.currentViewId !== 'dashboard') return;
+    omniP5?.redraw();
 }
 
 export async function mount(root) {
@@ -596,9 +885,10 @@ export async function mount(root) {
     initDashboardUi();
     await loadP5();
     wireP5();
+    canvasHostEl = document.getElementById('canvasParent');
+    wireCanvasPointer();
     attachDataListener();
     setAfterProcessCallback(onFrameAfterProcess);
-    window.touchThreshold = omni.touchThreshold;
 }
 
 export async function onConnected() {
@@ -610,10 +900,14 @@ export async function onConnected() {
 export async function unmount() {
     detachDataListener();
     setAfterProcessCallback(null);
+    window.removeEventListener('resize', evaluateLandscapeScopeMode);
+    unwireCanvasPointer();
+    canvasHostEl = null;
     if (omniP5) {
         omniP5.remove();
         omniP5 = null;
     }
+    rawPacketHistory.length = 0;
     if (rootEl) {
         rootEl.innerHTML = '';
         rootEl = null;
