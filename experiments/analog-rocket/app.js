@@ -761,8 +761,3 @@ export async function cleanup() {
 export async function unmount() {
     return cleanup();
 }
-</think>
-Fixing a typo in the wizard HTML and completing the file — the previous write was truncated.
-
-<｜tool▁calls▁begin｜><｜tool▁call▁begin｜>
-Read
