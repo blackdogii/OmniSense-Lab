@@ -2,7 +2,7 @@
  * 實驗：系統主控台（腳位診斷、波形、p5）
  */
 
-import { omni, PINS_CONFIG, TOUCH_Y_MAX, MA_WINDOW, FLOATING_ADC_IDS } from '../../web/core/state.js';
+import { omni, PINS_CONFIG, MA_WINDOW, FLOATING_ADC_IDS } from '../../web/core/state.js';
 import { clearBleQueue, resetFloatingBuffers, setAfterProcessCallback } from '../../web/core/events.js';
 import { u32Delta } from '../../web/core/unpacker.js';
 import { computeTouchModeMask } from '../../web/core/touchMask.js';
@@ -288,6 +288,62 @@ function loadP5() {
     });
 }
 
+/** 讀取縱軸上下限滑桿，保證 lo &lt; hi 且落在 0～4095 */
+function getWaveYRange() {
+    const minEl = document.getElementById('waveYMin');
+    const maxEl = document.getElementById('waveYMax');
+    let lo = minEl ? parseInt(minEl.value, 10) : 0;
+    let hi = maxEl ? parseInt(maxEl.value, 10) : 4095;
+    if (!Number.isFinite(lo)) lo = 0;
+    if (!Number.isFinite(hi)) hi = 4095;
+    lo = Math.max(0, Math.min(4094, lo));
+    hi = Math.max(1, Math.min(4095, hi));
+    if (lo >= hi) {
+        lo = Math.max(0, hi - 1);
+        if (minEl) minEl.value = String(lo);
+    }
+    if (hi <= lo) {
+        hi = Math.min(4095, lo + 1);
+        if (maxEl) maxEl.value = String(hi);
+    }
+    return { lo, hi };
+}
+
+function syncWaveZoomLabels() {
+    const { lo, hi } = getWaveYRange();
+    const l = document.getElementById('waveYMinLabel');
+    const h = document.getElementById('waveYMaxLabel');
+    if (l) l.textContent = String(lo);
+    if (h) h.textContent = String(hi);
+}
+
+function wireWaveZoomControls() {
+    const minEl = document.getElementById('waveYMin');
+    const maxEl = document.getElementById('waveYMax');
+    const onChange = (which) => {
+        if (which === 'min' && minEl && maxEl) {
+            let lo = parseInt(minEl.value, 10);
+            let hi = parseInt(maxEl.value, 10);
+            if (lo >= hi) maxEl.value = String(Math.min(4095, lo + 1));
+        } else if (which === 'max' && minEl && maxEl) {
+            let lo = parseInt(minEl.value, 10);
+            let hi = parseInt(maxEl.value, 10);
+            if (hi <= lo) minEl.value = String(Math.max(0, hi - 1));
+        }
+        syncWaveZoomLabels();
+        if (omniP5) omniP5.redraw();
+    };
+    minEl?.addEventListener('input', () => onChange('min'));
+    maxEl?.addEventListener('input', () => onChange('max'));
+    document.getElementById('waveZoomResetBtn')?.addEventListener('click', () => {
+        if (minEl) minEl.value = '0';
+        if (maxEl) maxEl.value = '4095';
+        syncWaveZoomLabels();
+        if (omniP5) omniP5.redraw();
+    });
+    syncWaveZoomLabels();
+}
+
 function wireP5() {
     const packetHistory = omni.packetHistory;
     omniP5 = new window.p5((p) => {
@@ -300,6 +356,8 @@ function wireP5() {
         p.draw = () => {
             p.background(10, 15, 30);
             if (packetHistory.length < 2) return;
+            const { lo: yLo, hi: yHi } = getWaveYRange();
+            const ySpan = Math.max(yHi - yLo, 1);
             const t0 = packetHistory[0].tsUs >>> 0;
             const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;
             let tw = u32Delta(t1, t0);
@@ -313,13 +371,14 @@ function wireP5() {
                 p.stroke(cr, cg, cb);
                 p.noFill();
                 p.beginShape();
-                const yMax = omni.channelMode[i] === 'touch' ? TOUCH_Y_MAX : 4095;
                 for (let k = 0; k < packetHistory.length; k++) {
                     const pkt = packetHistory[k];
                     if (pkt.values[i] == null) continue;
                     const dx = u32Delta(pkt.tsUs >>> 0, t0);
                     const x = p.map(dx, 0, tw, 0, p.width);
-                    const y = p.map(pkt.values[i], 0, yMax, plotBottom, plotTop);
+                    const raw = pkt.values[i];
+                    const yn = p.map(raw, yLo, yLo + ySpan, plotBottom, plotTop);
+                    const y = p.constrain(yn, plotTop, plotBottom);
                     p.vertex(x, y);
                 }
                 p.endShape();
@@ -446,6 +505,7 @@ function initDashboardUi() {
     document.getElementById('applyBtn').addEventListener('click', apply, { passive: false });
     document.getElementById('clearBtn').addEventListener('click', clearWaveform, { passive: false });
     document.getElementById('exportBtn').addEventListener('click', exportCsv, { passive: false });
+    wireWaveZoomControls();
     document.getElementById('freqRange').addEventListener('input', (e) => {
         document.getElementById('freqLabel').innerText = e.target.value;
     });

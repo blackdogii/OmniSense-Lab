@@ -71,9 +71,23 @@
                     <i data-lucide="line-chart" class="text-cyan-400 w-[18px] h-[18px] shrink-0"></i>
                     <h2 id="waveSectionTitle" class="text-base sm:text-lg font-bold text-slate-100">即時感測波形</h2>
                 </div>
-                <div id="toolbarActions" class="flex gap-2">
+                <div id="toolbarActions" class="flex flex-wrap gap-2">
                     <button type="button" id="clearBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50">清除</button>
                     <button type="button" id="exportBtn" class="text-[10px] font-semibold bg-emerald-600/85 px-3 py-2 rounded-lg hover:bg-emerald-500 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">導出 CSV</button>
+                    <button type="button" id="waveZoomResetBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50" title="縱軸恢復 0～4095">縱軸全幅</button>
+                </div>
+            </div>
+            <div class="space-y-2 mb-2 px-0.5">
+                <p class="text-[10px] text-slate-500">縱軸縮放（數值 0～4095，收窄區間可放大波形）</p>
+                <div class="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+                    <label for="waveYMin" class="text-[10px] font-semibold text-slate-400 shrink-0 w-[4.5rem]">下限</label>
+                    <input type="range" id="waveYMin" min="0" max="4094" value="0" class="flex-1 min-w-0 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                    <span id="waveYMinLabel" class="text-[10px] font-mono tabular-nums text-cyan-400/90 w-9 text-right shrink-0">0</span>
+                </div>
+                <div class="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
+                    <label for="waveYMax" class="text-[10px] font-semibold text-slate-400 shrink-0 w-[4.5rem]">上限</label>
+                    <input type="range" id="waveYMax" min="1" max="4095" value="4095" class="flex-1 min-w-0 h-1.5 bg-slate-700 rounded-lg appearance-none cursor-pointer accent-cyan-500">
+                    <span id="waveYMaxLabel" class="text-[10px] font-mono tabular-nums text-cyan-400/90 w-9 text-right shrink-0">4095</span>
                 </div>
             </div>
             <div id="canvasParent" class="canvas-container w-full aspect-[16/10] sm:aspect-[21/9] bg-slate-950 rounded-lg border border-slate-800/80 overflow-hidden"></div>
