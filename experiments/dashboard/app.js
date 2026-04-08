@@ -33,6 +33,12 @@ const WAVE_RGB = [
 
 let omniP5 = null;
 let rootEl = null;
+let waveAutoScale = true;
+let waveAutoLo = 0;
+let waveAutoHi = 4095;
+
+const AUTO_RANGE_WINDOW = 80;
+const AUTO_RANGE_MIN_SPAN = 140;
 
 function createKalman1D(processNoise, measNoise) {
     let x = null;
@@ -317,6 +323,68 @@ function syncWaveZoomLabels() {
     if (h) h.textContent = String(hi);
 }
 
+function updateWaveZoomUiVisibility() {
+    const wrap = document.getElementById('waveZoomManual');
+    const btn = document.getElementById('waveAutoBtn');
+    if (wrap) wrap.classList.toggle('hidden', waveAutoScale);
+    if (btn) {
+        btn.setAttribute('aria-pressed', String(waveAutoScale));
+        btn.classList.toggle('bg-cyan-700/70', waveAutoScale);
+        btn.classList.toggle('hover:bg-cyan-600/80', waveAutoScale);
+        btn.classList.toggle('bg-slate-700/60', !waveAutoScale);
+        btn.classList.toggle('hover:bg-slate-600/80', !waveAutoScale);
+    }
+}
+
+/**
+ * Auto-range algorithm:
+ * 1) collect recent active-channel samples
+ * 2) use 5th/95th percentile to reject outliers
+ * 3) add adaptive padding
+ * 4) smooth limits (fast expand, slow shrink) to reduce jitter
+ */
+function getAutoWaveRange(packetHistory) {
+    const start = Math.max(0, packetHistory.length - AUTO_RANGE_WINDOW);
+    const vals = [];
+    for (let k = start; k < packetHistory.length; k++) {
+        const pkt = packetHistory[k];
+        for (let i = 0; i < 9; i++) {
+            if (!((omni.activeMask >> i) & 1)) continue;
+            const v = pkt.values[i];
+            if (v == null || !Number.isFinite(v)) continue;
+            vals.push(v);
+        }
+    }
+    if (vals.length < 8) return { lo: waveAutoLo, hi: waveAutoHi };
+
+    vals.sort((a, b) => a - b);
+    const n = vals.length - 1;
+    const qLo = vals[Math.max(0, Math.floor(n * 0.05))];
+    const qHi = vals[Math.max(0, Math.floor(n * 0.95))];
+    const span = Math.max(1, qHi - qLo);
+    const pad = Math.max(40, span * 0.18);
+    let targetLo = Math.max(0, qLo - pad);
+    let targetHi = Math.min(4095, qHi + pad);
+    if (targetHi - targetLo < AUTO_RANGE_MIN_SPAN) {
+        const mid = (targetLo + targetHi) * 0.5;
+        targetLo = Math.max(0, mid - AUTO_RANGE_MIN_SPAN * 0.5);
+        targetHi = Math.min(4095, mid + AUTO_RANGE_MIN_SPAN * 0.5);
+    }
+
+    const loAlpha = targetLo < waveAutoLo ? 0.28 : 0.08;
+    const hiAlpha = targetHi > waveAutoHi ? 0.28 : 0.08;
+    waveAutoLo += (targetLo - waveAutoLo) * loAlpha;
+    waveAutoHi += (targetHi - waveAutoHi) * hiAlpha;
+    if (waveAutoHi - waveAutoLo < 1) waveAutoHi = waveAutoLo + 1;
+    return { lo: waveAutoLo, hi: waveAutoHi };
+}
+
+function getCurrentWaveRange(packetHistory) {
+    if (waveAutoScale) return getAutoWaveRange(packetHistory);
+    const m = getWaveYRange();
+    return { lo: m.lo, hi: m.hi };
+}
+
 function wireWaveZoomControls() {
     const minEl = document.getElementById('waveYMin');
     const maxEl = document.getElementById('waveYMax');
@@ -335,13 +403,21 @@ function wireWaveZoomControls() {
     };
     minEl?.addEventListener('input', () => onChange('min'));
     maxEl?.addEventListener('input', () => onChange('max'));
+    document.getElementById('waveAutoBtn')?.addEventListener('click', () => {
+        waveAutoScale = !waveAutoScale;
+        updateWaveZoomUiVisibility();
+        if (omniP5) omniP5.redraw();
+    });
     document.getElementById('waveZoomResetBtn')?.addEventListener('click', () => {
         if (minEl) minEl.value = '0';
         if (maxEl) maxEl.value = '4095';
+        waveAutoLo = 0;
+        waveAutoHi = 4095;
         syncWaveZoomLabels();
         if (omniP5) omniP5.redraw();
     });
     syncWaveZoomLabels();
+    updateWaveZoomUiVisibility();
 }
 
 function wireP5() {
@@ -356,7 +432,7 @@ function wireP5() {
         p.draw = () => {
             p.background(10, 15, 30);
             if (packetHistory.length < 2) return;
-            const { lo: yLo, hi: yHi } = getWaveYRange();
+            const { lo: yLo, hi: yHi } = getCurrentWaveRange(packetHistory);
             const ySpan = Math.max(yHi - yLo, 1);
             const t0 = packetHistory[0].tsUs >>> 0;
             const t1 = packetHistory[packetHistory.length - 1].tsUs >>> 0;

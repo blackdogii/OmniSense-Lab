@@ -72,12 +72,16 @@
                     <h2 id="waveSectionTitle" class="text-base sm:text-lg font-bold text-slate-100">即時感測波形</h2>
                 </div>
                 <div id="toolbarActions" class="flex flex-wrap gap-2">
+                    <button type="button" id="waveAutoBtn" class="text-[10px] font-semibold bg-cyan-700/70 px-3 py-2 rounded-lg hover:bg-cyan-600/80 min-h-[38px] inline-flex items-center gap-1.5 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50" title="自動調整上下限（開關）" aria-pressed="true">
+                        <i data-lucide="sparkles" class="w-3.5 h-3.5"></i>
+                        <span>自動調整上下限</span>
+                    </button>
                     <button type="button" id="clearBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50">清除</button>
                     <button type="button" id="exportBtn" class="text-[10px] font-semibold bg-emerald-600/85 px-3 py-2 rounded-lg hover:bg-emerald-500 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400/50">導出 CSV</button>
                     <button type="button" id="waveZoomResetBtn" class="text-[10px] font-semibold bg-slate-700/60 px-3 py-2 rounded-lg hover:bg-slate-600/80 min-h-[38px] focus:outline-none focus-visible:ring-2 focus-visible:ring-slate-400/50" title="縱軸恢復 0～4095">縱軸全幅</button>
                 </div>
             </div>
-            <div class="space-y-2 mb-2 px-0.5">
+            <div id="waveZoomManual" class="space-y-2 mb-2 px-0.5 hidden">
                 <p class="text-[10px] text-slate-500">縱軸縮放（數值 0～4095，收窄區間可放大波形）</p>
                 <div class="flex flex-col sm:flex-row sm:items-center gap-1.5 sm:gap-3">
                     <label for="waveYMin" class="text-[10px] font-semibold text-slate-400 shrink-0 w-[4.5rem]">下限</label>
