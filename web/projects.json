@@ -1,5 +1,5 @@
 {
-  "version": 4,
+  "version": 5,
   "experiments": [
     {
       "id": "dashboard",
@@ -36,6 +36,22 @@
         "activeMask": 4,
         "pullupMask": 4,
         "freq": 100,
+        "res": 1,
+        "channelModes": ["adc", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
+      }
+    },
+    {
+      "id": "sense-synth",
+      "label": "Sense-Synth Poly",
+      "shortLabel": "Synth",
+      "icon": "audio-waveform",
+      "subtitle": "五路感測合成器",
+      "description": "Web Audio 五獨立振盪器；ADC 映射 220–1200 Hz；p5 五軌示波；教室向正弦／三角波與 Gain 限幅。",
+      "hardwarePreset": {
+        "message": "Sense-Synth 需啟用 G0–G4 五路類比輸入。是否同步？",
+        "activeMask": 31,
+        "pullupMask": 0,
+        "freq": 80,
         "res": 1,
         "channelModes": ["adc", "adc", "adc", "adc", "adc", "dig", "dig", "dig", "dig"]
       }
