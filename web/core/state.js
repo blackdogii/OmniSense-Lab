@@ -40,8 +40,8 @@ export const FLOAT_SPAN_THRESH = 120;
 
 /** 與韌體、index 顯示一致（見 Config.h） */
 export const OMNISENSE_VER_X = 0;
-export const OMNISENSE_VER_FW = 2;
-export const OMNISENSE_VER_WEB = 2;
+export const OMNISENSE_VER_FW = 3;
+export const OMNISENSE_VER_WEB = 3;
 export const OMNISENSE_WEB_VERSION = `${OMNISENSE_VER_X}.${OMNISENSE_VER_FW}.${OMNISENSE_VER_WEB}`;
 export const OMNISENSE_VERSION_CODE = (OMNISENSE_VER_FW << 8) | OMNISENSE_VER_WEB;
 

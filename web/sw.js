@@ -1,8 +1,8 @@
 /**
  * OmniSense Lab — Service Worker（離線快取）
- * 對應釋出：0.2.3 · 版本規則：docs/VERSIONING.md
+ * 對應釋出：0.3.3 · 版本規則：docs/VERSIONING.md
  */
-const CACHE_NAME = 'omnisense-lab-web-v0.2.3';
+const CACHE_NAME = 'omnisense-lab-web-v0.3.3';
 const ASSETS_TO_CACHE = [
   './index.html',
   './manifest.json',

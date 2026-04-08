@@ -1,6 +1,6 @@
 /*
  * OmniSense Lab — 主程式（ESP32-C3 BLE）
- * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 目前釋出：0.3.3 · 版本規則：docs/VERSIONING.md
  * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #include <BLEDevice.h>

@@ -1,20 +1,53 @@
 /*
  * OmniSense Lab — SensorEngine（CPU 週期計數與快速 ADC 整合版）
- * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 目前釋出：0.3.3 · 版本規則：docs/VERSIONING.md
  * 作者：小威老師 · 授權：見倉庫 LICENSE
+ *
+ * 類比通道：Arduino analogRead 過採樣後，以 esp_adc_cal（eFuse）換算 mV，再線性映射回 0–4095
+ * 比例尺（名義 Vcc = 3300 mV），供網頁端分壓公式使用。
  */
- #include "SensorEngine.h"
- #include "Config.h"
- #include "driver/gpio.h"
- #include "esp_timer.h"
- #include "esp_cpu.h"        // 引入 CPU 計時器
- #include "soc/gpio_reg.h"   // 引入寄存器直接存取
- #include <algorithm>
- #include <cstring>
+#include "SensorEngine.h"
+#include "Config.h"
+#include "driver/gpio.h"
+#include "esp_timer.h"
+#include "esp_cpu.h"
+#include "esp_adc_cal.h"
+#include "soc/gpio_reg.h"
+#include <algorithm>
+#include <cstring>
  
- esp_timer_handle_t SensorEngine::s_timer = nullptr;
- 
- static uint16_t s_out[MAX_CHANNELS];
+esp_timer_handle_t SensorEngine::s_timer = nullptr;
+
+static esp_adc_cal_characteristics_t s_adcCalChars;
+static constexpr uint32_t kAdcOversampleCount = 64;
+/** 與前端 Ohm-Meter 分壓模型對齊之名義電源電壓（mV）；衰減 11 dB 量程約 0–3100 mV */
+static constexpr uint32_t kDividerVddNomMv = 3300;
+
+static uint16_t readAnalogCalibratedU12(int pin) {
+    uint64_t sum = 0;
+    for (uint32_t i = 0; i < kAdcOversampleCount; ++i) {
+        sum += static_cast<uint32_t>(analogRead(pin));
+    }
+    uint32_t rawAvg = static_cast<uint32_t>(sum / kAdcOversampleCount);
+    if (rawAvg > 4095u) {
+        rawAvg = 4095u;
+    }
+    uint32_t mv = esp_adc_cal_raw_to_voltage(rawAvg, &s_adcCalChars);
+    if (mv > kDividerVddNomMv) {
+        mv = kDividerVddNomMv;
+    }
+    uint32_t u12 = (mv * 4095u) / kDividerVddNomMv;
+    if (u12 > 4095u) {
+        u12 = 4095u;
+    }
+    return static_cast<uint16_t>(u12);
+}
+
+static void initAdcCalibration() {
+    esp_adc_cal_characterize(ADC_UNIT_1, ADC_ATTEN_DB_11, ADC_WIDTH_BIT_12, 1100, &s_adcCalChars);
+}
+
+static uint16_t s_out[MAX_CHANNELS];
  static uint8_t s_count = 0;
  static uint32_t s_tsUs = 0;
  static volatile bool s_pending = false;
@@ -142,7 +175,7 @@
                  }
              } else if (i < NUM_ADC_CHANNELS) {
                  const int pin = ADC_PINS[i];
-                 tmp[cnt++] = static_cast<uint16_t>(analogRead(pin));
+                 tmp[cnt++] = readAnalogCalibratedU12(pin);
                  if ((g_sysConfig.pullupMask >> i) & 1) gpio_pullup_en((gpio_num_t)pin);
              } else {
                  const int di = i - NUM_ADC_CHANNELS;
@@ -207,11 +240,12 @@
      return true;
  }
  
- void SensorEngine::init() {
-     analogReadResolution(12);
-     applyPinPullups();
- 
-     if (s_timer == nullptr) {
+void SensorEngine::init() {
+    analogReadResolution(12);
+    initAdcCalibration();
+    applyPinPullups();
+
+    if (s_timer == nullptr) {
          esp_timer_create_args_t cfg = {};
          cfg.callback = &sensorTimerCb;
          cfg.arg = nullptr;

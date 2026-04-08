@@ -1,6 +1,6 @@
 /*
  * OmniSense Lab — 韌體全域設定（BLE、腳位、協定常數、版本常數）
- * 目前釋出：OMNISENSE_VERSION = 0.2.2（與 web/core/state.js 之 OMNISENSE_WEB_VERSION 須一致）
+ * 目前釋出：OMNISENSE_VERSION = 0.3.3（與 web/core/state.js 之 OMNISENSE_WEB_VERSION 須一致）
  * 版本遞增規則：見倉庫 docs/VERSIONING.md
  */
 #ifndef CONFIG_H
@@ -16,10 +16,10 @@
 #define BLE_DEVICE_NAME "OmniSense_60"
 
 #define OMNISENSE_VER_X   0
-#define OMNISENSE_VER_FW  2
-#define OMNISENSE_VER_WEB 2
+#define OMNISENSE_VER_FW  3
+#define OMNISENSE_VER_WEB 3
 
-#define OMNISENSE_VERSION    "0.2.2"
+#define OMNISENSE_VERSION    "0.3.3"
 #define OMNISENSE_FW_VERSION OMNISENSE_VERSION
 
 /** 與韌體／網頁修訂對應之 16-bit 碼（細節見 docs/VERSIONING.md） */

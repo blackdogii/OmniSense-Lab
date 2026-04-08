@@ -1,6 +1,7 @@
 /**
  * Ohm-Meter-Lab — 電阻鑑定師：精準之路（Ohmic Master）
- * 分壓：R_x = R_pu × ADC / (4095 − ADC) · 三量程 · 校準實驗室 · 二次擬合（最小二乘）
+ * 分壓模型：V = Vcc·R_x/(R_x+R_pullup)；上行為 0–4095 比例讀值（名義對應 Vcc=3.3V）。
+ * 舊韌體仍可直接使用；燒錄含 ADC 校正／過採樣之韌體可再提升讀值與電阻換算穩定度。
  */
 
 import { omni } from '../../web/core/state.js';
@@ -12,13 +13,15 @@ const CH_ADC = 2;
 const ADC_MAX = 4095;
 const ADC_SAFE_LO = 500;
 const ADC_SAFE_HI = 3500;
-const STORAGE_KEY = 'omnisense_ohm_meter_lab_v1';
+/** 與韌體 kDividerVddNomMv、分壓假設一致（mV） */
+const VCC_MV = 3300;
+const STORAGE_KEY = 'omnisense_ohm_meter_lab_v2';
 
 const PRESET_ACTIVE = 1 << CH_ADC;
 const PRESET_PULLUP = 1 << CH_ADC;
 const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 
-/** 三種量程：標稱上拉電阻（實體需對應接線／跳線） */
+/** 三種量程：標稱上拉電阻實體（G2 內建上拉約 10kΩ 量程；校準可更新 R_pullup） */
 const RANGE_MODES = [
     { id: '10k', label: '低阻程 · 10kΩ 上拉', rPuNom: 10e3 },
     { id: '100k', label: '中阻程 · 100kΩ 上拉', rPuNom: 100e3 },
@@ -33,11 +36,11 @@ let vizP5 = null;
 let lastAdc = 0;
 let rangeId = '10k';
 
-/** @type {{ rPuCal: number | null, poly: { a: number; b: number; c: number; rMin: number; rSpan: number } | null, samples: { r: number; adc: number }[] }} */
+/** @type {Record<string, { rPuCal: number | null, samples: { r: number; adc: number }[] }>} */
 let labByRange = {
-    '10k': { rPuCal: null, poly: null, samples: [] },
-    '100k': { rPuCal: null, poly: null, samples: [] },
-    '1M': { rPuCal: null, poly: null, samples: [] }
+    '10k': { rPuCal: null, samples: [] },
+    '100k': { rPuCal: null, samples: [] },
+    '1M': { rPuCal: null, samples: [] }
 };
 
 function injectCss() {
@@ -69,25 +72,51 @@ function rPuEffective() {
     return L.rPuCal != null && Number.isFinite(L.rPuCal) ? L.rPuCal : nom;
 }
 
-/** R_x = R_pu × ADC / (4095 − ADC) */
+/** Map uplink code (0–4095) to equivalent pin voltage in mV (nominal full-scale = Vcc). */
+function adcToMv(adc) {
+    return (adc / ADC_MAX) * VCC_MV;
+}
+
+/**
+ * Divider: V = Vcc * R_x / (R_x + R_pullup) => R_x = R_pullup * V / (Vcc - V).
+ * With V/Vcc = adc/ADC_MAX: R_x = R_pullup * adc / (ADC_MAX - adc).
+ */
 function rxIdeal(adc, rPu) {
     if (adc <= 0 || adc >= ADC_MAX) return NaN;
     return (rPu * adc) / (ADC_MAX - adc);
 }
 
 function rxDisplay(adc) {
-    const L = labByRange[rangeId];
-    if (L.poly && L.poly.rSpan != null) {
-        const R = solveRFromQuadratic(adc, L.poly);
-        if (R > 0 && Number.isFinite(R)) return R;
-    }
     return rxIdeal(adc, rPuEffective());
 }
 
-/** 邊界電阻：ADC=500 / 3500 時之理論 R */
+/** R_pullup = R_known * (Vcc - V) / V per calibration point */
+function rPullupFromKnownRAndAdc(rKnown, adc) {
+    const v = adcToMv(adc);
+    if (!Number.isFinite(rKnown) || rKnown <= 0) return NaN;
+    if (v <= 1 || v >= VCC_MV - 1) return NaN;
+    return (rKnown * (VCC_MV - v)) / v;
+}
+
+function estimateRPuFromSamples(samples, rPuNom) {
+    const est = [];
+    for (const p of samples) {
+        const rp = rPullupFromKnownRAndAdc(p.r, p.adc);
+        if (Number.isFinite(rp) && rp > 0) est.push(rp);
+    }
+    if (!est.length) return rPuNom;
+    return est.reduce((a, b) => a + b, 0) / est.length;
+}
+
+/** Theoretical monotonic curve (ADC code vs R): adc = ADC_MAX * R / (R + R_pullup) */
+function theoreticalAdcFromR(rOhms, rPu) {
+    if (!Number.isFinite(rOhms) || !Number.isFinite(rPu) || rOhms <= 0 || rPu <= 0) return NaN;
+    const x = (ADC_MAX * rOhms) / (rOhms + rPu);
+    return Math.max(0, Math.min(ADC_MAX, x));
+}
+
 function boundaryRAt(adcGate, rPu) {
-    if (adcGate <= 0 || adcGate >= ADC_MAX) return NaN;
-    return (rPu * adcGate) / (ADC_MAX - adcGate);
+    return rxIdeal(adcGate, rPu);
 }
 
 function formatOhm(r) {
@@ -97,133 +126,57 @@ function formatOhm(r) {
     return `${r.toFixed(1)} Ω`;
 }
 
-/** 最小二乘：ADC ≈ a·u² + b·u + c，u = (R − rMin) / rSpan（避免 R 跨數量級時病態） */
-function fitQuadraticLeastSquares(xs, ys) {
-    const n = xs.length;
-    if (n < 3) return null;
-    const rMin = Math.min(...xs);
-    const rMax = Math.max(...xs);
-    const rSpan = Math.max(rMax - rMin, 1e-9);
-    const us = xs.map((x) => (x - rMin) / rSpan);
-    let s4 = 0,
-        s3 = 0,
-        s2 = 0,
-        s1 = 0,
-        s0 = n;
-    let t2 = 0,
-        t1 = 0,
-        t0 = 0;
-    for (let i = 0; i < n; i++) {
-        const x = us[i];
-        const y = ys[i];
-        const x2 = x * x;
-        const x3 = x2 * x;
-        const x4 = x2 * x2;
-        s4 += x4;
-        s3 += x3;
-        s2 += x2;
-        s1 += x;
-        t2 += y * x2;
-        t1 += y * x;
-        t0 += y;
-    }
-    const sol = solve3x3(
-        [s4, s3, s2, t2],
-        [s3, s2, s1, t1],
-        [s2, s1, s0, t0]
-    );
-    if (!sol) return null;
-    return { a: sol[0], b: sol[1], c: sol[2], rMin, rSpan };
+function emptyLabEntry() {
+    return { rPuCal: null, samples: [] };
 }
 
-function solve3x3(row0, row1, row2) {
-    const A = [
-        [row0[0], row0[1], row0[2], row0[3]],
-        [row1[0], row1[1], row1[2], row1[3]],
-        [row2[0], row2[1], row2[2], row2[3]]
-    ];
-    for (let col = 0; col < 3; col++) {
-        let piv = col;
-        for (let r = col + 1; r < 3; r++) {
-            if (Math.abs(A[r][col]) > Math.abs(A[piv][col])) piv = r;
-        }
-        if (Math.abs(A[piv][col]) < 1e-12) return null;
-        if (piv !== col) [A[col], A[piv]] = [A[piv], A[col]];
-        const div = A[col][col];
-        for (let j = col; j < 4; j++) A[col][j] /= div;
-        for (let r = 0; r < 3; r++) {
-            if (r === col) continue;
-            const f = A[r][col];
-            for (let j = col; j < 4; j++) A[r][j] -= f * A[col][j];
-        }
-    }
-    return [A[0][3], A[1][3], A[2][3]];
-}
-
-/** ADC = a·u² + b·u + c，u=(R−rMin)/rSpan ⇒ 求 R>0 */
-function solveRFromQuadratic(adc, poly) {
-    const { a, b, c, rMin, rSpan } = poly;
-    const span = rSpan != null && rSpan > 0 ? rSpan : 1;
-    const base = rMin != null ? rMin : 0;
-    if (Math.abs(a) < 1e-14) {
-        if (Math.abs(b) < 1e-14) return NaN;
-        const u = (adc - c) / b;
-        return base + u * span;
-    }
-    const disc = b * b - 4 * a * (c - adc);
-    if (disc < 0) return NaN;
-    const s = Math.sqrt(disc);
-    const u1 = (-b + s) / (2 * a);
-    const u2 = (-b - s) / (2 * a);
-    const cands = [u1, u2]
-        .filter((u) => Number.isFinite(u))
-        .map((u) => base + u * span)
-        .filter((r) => r > 0);
-    if (!cands.length) return NaN;
-    return cands.reduce((x, y) => (x < y ? x : y));
-}
-
-/** 舊版 poly（無 rSpan）自採樣重新擬合 */
-function migratePolyFromSamples(L) {
-    if (!L.samples || L.samples.length < 3) return;
-    if (L.poly && L.poly.rSpan != null) return;
-    const xs = L.samples.map((s) => s.r);
-    const ys = L.samples.map((s) => s.adc);
-    const poly = fitQuadraticLeastSquares(xs, ys);
-    L.poly = poly;
-}
-
-function estimateRPuFromSamples(samples, rPuNom) {
-    if (!samples.length) return rPuNom;
-    const est = [];
-    for (const p of samples) {
-        const { r, adc } = p;
-        if (adc <= 0 || adc >= ADC_MAX) continue;
-        est.push((r * (ADC_MAX - adc)) / adc);
-    }
-    if (!est.length) return rPuNom;
-    return est.reduce((a, b) => a + b, 0) / est.length;
+function normalizeLabEntry(raw) {
+    const e = emptyLabEntry();
+    if (!raw || typeof raw !== 'object') return e;
+    e.rPuCal = raw.rPuCal != null && Number.isFinite(Number(raw.rPuCal)) ? Number(raw.rPuCal) : null;
+    e.samples = Array.isArray(raw.samples)
+        ? raw.samples.map((s) => ({ r: Number(s.r), adc: Number(s.adc) })).filter((s) => Number.isFinite(s.r) && s.r > 0)
+        : [];
+    return e;
 }
 
 function loadStorage() {
     try {
         const raw = localStorage.getItem(STORAGE_KEY);
+        if (!raw) {
+            tryMigrateFromV1();
+            return;
+        }
+        const o = JSON.parse(raw);
+        if (o.labByRange && typeof o.labByRange === 'object') {
+            for (const id of Object.keys(labByRange)) {
+                if (o.labByRange[id]) labByRange[id] = normalizeLabEntry(o.labByRange[id]);
+            }
+        }
+        if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
+    } catch {
+        /* ignore */
+    }
+}
+
+/** Legacy key v1: drop quadratic poly, keep samples / rPuCal */
+function tryMigrateFromV1() {
+    try {
+        const raw = localStorage.getItem('omnisense_ohm_meter_lab_v1');
         if (!raw) return;
         const o = JSON.parse(raw);
         if (o.labByRange && typeof o.labByRange === 'object') {
             for (const id of Object.keys(labByRange)) {
-                if (o.labByRange[id]) {
-                    labByRange[id].rPuCal =
-                        o.labByRange[id].rPuCal != null ? Number(o.labByRange[id].rPuCal) : null;
-                    labByRange[id].poly = o.labByRange[id].poly || null;
-                    labByRange[id].samples = Array.isArray(o.labByRange[id].samples)
-                        ? o.labByRange[id].samples.map((s) => ({ r: Number(s.r), adc: Number(s.adc) }))
-                        : [];
-                }
+                if (!o.labByRange[id]) continue;
+                const row = o.labByRange[id];
+                labByRange[id] = normalizeLabEntry({
+                    rPuCal: row.rPuCal,
+                    samples: row.samples
+                });
             }
         }
         if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
-        for (const id of Object.keys(labByRange)) migratePolyFromSamples(labByRange[id]);
+        saveStorage();
     } catch {
         /* ignore */
     }
@@ -233,7 +186,7 @@ function saveStorage() {
     try {
         localStorage.setItem(
             STORAGE_KEY,
-            JSON.stringify({ version: 1, rangeId, labByRange })
+            JSON.stringify({ version: 2, rangeId, labByRange })
         );
     } catch {
         /* ignore */
@@ -241,7 +194,7 @@ function saveStorage() {
 }
 
 function exportJson() {
-    const blob = new Blob([JSON.stringify({ version: 1, rangeId, labByRange }, null, 2)], {
+    const blob = new Blob([JSON.stringify({ version: 2, rangeId, labByRange }, null, 2)], {
         type: 'application/json'
     });
     const a = document.createElement('a');
@@ -255,21 +208,24 @@ function updateMeasureUi() {
     const adc = lastAdc;
     const rPu = rPuEffective();
     const rx = rxDisplay(adc);
+    const vMv = adcToMv(adc);
     const elR = rootEl?.querySelector('#ohm-rx-val');
     const elRaw = rootEl?.querySelector('#ohm-adc-raw');
     const elWarn = rootEl?.querySelector('#ohm-warn');
     if (elR) elR.textContent = formatOhm(rx);
-    if (elRaw) elRaw.textContent = `ADC raw = ${adc.toFixed(0)} · R_pu′ = ${formatOhm(rPu)}`;
+    if (elRaw) {
+        elRaw.textContent = `換算電壓 ≈ ${vMv.toFixed(1)} mV（名義 ${VCC_MV} mV 滿刻度）· 比例讀值 ${adc.toFixed(0)} · R_pullup′ = ${formatOhm(rPu)}`;
+    }
 
     if (!elWarn) return;
     elWarn.classList.remove('ohm-warn--ok', 'hidden');
     if (adc < ADC_SAFE_LO) {
         const x = boundaryRAt(ADC_SAFE_LO, rPu);
-        elWarn.textContent = `量程提示：ADC < ${ADC_SAFE_LO} → 電阻 < ${formatOhm(x)}（易飽和，請換高阻程或檢查接線）`;
+        elWarn.textContent = `量程提示：讀值 < ${ADC_SAFE_LO} → 電阻 < ${formatOhm(x)}（易飽和，請換高阻程或檢查接線）`;
         elWarn.classList.remove('ohm-warn--ok');
     } else if (adc > ADC_SAFE_HI) {
         const x = boundaryRAt(ADC_SAFE_HI, rPu);
-        elWarn.textContent = `量程提示：ADC > ${ADC_SAFE_HI} → 電阻 > ${formatOhm(x)}（易飽和，請換低阻程）`;
+        elWarn.textContent = `量程提示：讀值 > ${ADC_SAFE_HI} → 電阻 > ${formatOhm(x)}（易飽和，請換低阻程）`;
         elWarn.classList.remove('ohm-warn--ok');
     } else {
         elWarn.textContent = '讀值在建議窗內（500–3500）。';
@@ -284,7 +240,7 @@ function renderLabTable() {
     tb.innerHTML = samples
         .map(
             (row, i) =>
-                `<tr><td>${i + 1}</td><td>${row.r}</td><td>${row.adc.toFixed(0)}</td></tr>`
+                `<tr><td>${i + 1}</td><td>${row.r}</td><td>${adcToMv(row.adc).toFixed(1)}</td><td>${row.adc.toFixed(0)}</td></tr>`
         )
         .join('');
 }
@@ -293,17 +249,19 @@ function updateLabOut() {
     const L = labByRange[rangeId];
     const out = rootEl?.querySelector('#ohm-lab-out');
     if (!out) return;
-    let txt = '';
-    if (L.samples.length >= 2) {
-        txt += `反推 R_pu(平均) ≈ ${formatOhm(estimateRPuFromSamples(L.samples, getRange().rPuNom))}\n`;
+    const lines = [];
+    const nom = getRange().rPuNom;
+    lines.push(`分壓模型：V = ${VCC_MV} mV × R_x / (R_x + R_pullup)；採樣點反推 R_pullup = R_已知 × (Vcc − V) / V。`);
+    if (L.samples.length) {
+        const est = estimateRPuFromSamples(L.samples, nom);
+        lines.push(`由目前採樣點估算之平均 R_pullup ≈ ${formatOhm(est)}（標稱量程 ${formatOhm(nom)}）。`);
     }
-    if (L.poly && L.poly.rSpan != null) {
-        const p = L.poly;
-        txt += `二次擬合（u=(R−${p.rMin.toFixed(0)})/${p.rSpan.toExponential(2)}）ADC ≈ ${p.a.toExponential(4)}·u² + ${p.b.toExponential(4)}·u + ${p.c.toFixed(2)}\n`;
+    if (L.rPuCal != null && Number.isFinite(L.rPuCal)) {
+        lines.push(`已套用儲存之 R_pullup′ = ${formatOhm(L.rPuCal)}。`);
     } else {
-        txt += '二次擬合：至少 3 個採樣點後按「擬合」。\n';
+        lines.push('尚未套用校準：測量使用標稱量程電阻；完成採樣後按「套用分壓校準」。');
     }
-    out.textContent = txt.trim();
+    out.textContent = lines.join('\n');
 }
 
 function onData(ev) {
@@ -325,7 +283,7 @@ function mountP5(host) {
         p.draw = () => {
             p.background(12, 18, 34);
             const samples = labByRange[rangeId].samples;
-            const poly = labByRange[rangeId].poly;
+            const rPuPlot = rPuEffective();
             const pad = 36;
             const w = p.width - pad * 2;
             const h = p.height - pad * 2;
@@ -342,19 +300,20 @@ function mountP5(host) {
             let rMax = Math.max(...rs);
             let aMin = Math.min(...ads);
             let aMax = Math.max(...ads);
-            if (poly && poly.rSpan != null) {
-                for (let rr = rMin; rr <= rMax; rr += (rMax - rMin) / 20 || 1) {
-                    const u = (rr - poly.rMin) / poly.rSpan;
-                    const y = poly.a * u * u + poly.b * u + poly.c;
-                    aMin = Math.min(aMin, y);
-                    aMax = Math.max(aMax, y);
+            const rLo = Math.max(1, rMin * 0.85);
+            const rHi = rMax * 1.15;
+            const steps = 64;
+            for (let i = 0; i <= steps; i++) {
+                const rr = rLo + (i / steps) * Math.max(rHi - rLo, 1e-9);
+                const ad = theoreticalAdcFromR(rr, rPuPlot);
+                if (Number.isFinite(ad)) {
+                    aMin = Math.min(aMin, ad);
+                    aMax = Math.max(aMax, ad);
                 }
             }
-            rMin *= 0.85;
-            rMax *= 1.15;
-            aMin = Math.max(0, aMin - 100);
-            aMax = Math.min(ADC_MAX, aMax + 100);
-            const sx = (r) => pad + ((r - rMin) / Math.max(rMax - rMin, 1e-9)) * w;
+            aMin = Math.max(0, aMin - 80);
+            aMax = Math.min(ADC_MAX, aMax + 80);
+            const sx = (r) => pad + ((r - rLo) / Math.max(rHi - rLo, 1e-9)) * w;
             const sy = (ad) => pad + h - ((ad - aMin) / Math.max(aMax - aMin, 1e-9)) * h;
 
             p.stroke(51, 65, 85);
@@ -367,7 +326,7 @@ function mountP5(host) {
             p.push();
             p.translate(12, pad + h / 2);
             p.rotate(-p.HALF_PI);
-            p.text('ADC', 0, 0);
+            p.text('換算讀值 0–4095', 0, 0);
             p.pop();
 
             p.stroke(56, 189, 248, 120);
@@ -376,20 +335,18 @@ function mountP5(host) {
                 const gx = pad + (i * w) / 4;
                 p.line(gx, pad, gx, pad + h);
             }
-            if (poly && poly.rSpan != null && rMax > rMin) {
-                p.stroke(167, 139, 250, 200);
-                p.strokeWeight(2);
-                p.noFill();
-                p.beginShape();
-                const steps = 48;
-                for (let i = 0; i <= steps; i++) {
-                    const rr = rMin + (i / steps) * (rMax - rMin);
-                    const u = (rr - poly.rMin) / poly.rSpan;
-                    const ad = poly.a * u * u + poly.b * u + poly.c;
-                    if (ad >= 0 && ad <= ADC_MAX) p.vertex(sx(rr), sy(ad));
-                }
-                p.endShape();
+
+            p.stroke(167, 139, 250, 220);
+            p.strokeWeight(2);
+            p.noFill();
+            p.beginShape();
+            for (let i = 0; i <= steps; i++) {
+                const rr = rLo + (i / steps) * (rHi - rLo);
+                const ad = theoreticalAdcFromR(rr, rPuPlot);
+                if (Number.isFinite(ad)) p.vertex(sx(rr), sy(ad));
             }
+            p.endShape();
+
             p.fill(34, 211, 238);
             p.noStroke();
             for (let i = 0; i < samples.length; i++) {
@@ -443,7 +400,6 @@ function wireUi() {
 
     rootEl?.querySelector('#ohm-clear-samples')?.addEventListener('click', () => {
         labByRange[rangeId].samples = [];
-        labByRange[rangeId].poly = null;
         labByRange[rangeId].rPuCal = null;
         saveStorage();
         renderLabTable();
@@ -454,23 +410,23 @@ function wireUi() {
     rootEl?.querySelector('#ohm-fit')?.addEventListener('click', () => {
         const L = labByRange[rangeId];
         const pts = L.samples;
-        if (pts.length < 3) {
-            window.alert('二次擬合至少需要 3 個採樣點（建議 5 個點）。');
+        if (pts.length < 1) {
+            window.alert('請至少記錄 1 個採樣點（建議 3 個以上以平均 R_pullup）。');
             return;
         }
-        const xs = pts.map((p) => p.r);
-        const ys = pts.map((p) => p.adc);
-        const poly = fitQuadraticLeastSquares(xs, ys);
-        if (!poly) {
-            window.alert('擬合失敗（矩陣奇異），請檢查採樣點是否過於重複。');
+        const meanPu = estimateRPuFromSamples(pts, getRange().rPuNom);
+        if (!Number.isFinite(meanPu) || meanPu <= 0) {
+            window.alert('無法由採樣點計算 R_pullup（檢查電壓是否過近 0 或滿刻度）。');
             return;
         }
-        L.poly = poly;
-        L.rPuCal = estimateRPuFromSamples(pts, getRange().rPuNom);
+        L.rPuCal = meanPu;
         saveStorage();
         updateLabOut();
         updateMeasureUi();
         vizP5?.redraw();
+        if (pts.length < 3) {
+            window.alert('已套用平均 R_pullup；採樣點較少時誤差較大，建議再記錄幾點後重算。');
+        }
     });
 
     rootEl?.querySelector('#ohm-export')?.addEventListener('click', exportJson);
@@ -484,21 +440,13 @@ function wireUi() {
                 const o = JSON.parse(String(r.result));
                 if (o.labByRange) {
                     labByRange = {
-                        '10k': { rPuCal: null, poly: null, samples: [] },
-                        '100k': { rPuCal: null, poly: null, samples: [] },
-                        '1M': { rPuCal: null, poly: null, samples: [] }
+                        '10k': emptyLabEntry(),
+                        '100k': emptyLabEntry(),
+                        '1M': emptyLabEntry()
                     };
                     for (const id of Object.keys(labByRange)) {
                         if (o.labByRange[id]) {
-                            labByRange[id].rPuCal = o.labByRange[id].rPuCal ?? null;
-                            labByRange[id].poly = o.labByRange[id].poly ?? null;
-                            labByRange[id].samples = Array.isArray(o.labByRange[id].samples)
-                                ? o.labByRange[id].samples.map((s) => ({
-                                      r: Number(s.r),
-                                      adc: Number(s.adc)
-                                  }))
-                                : [];
-                            migratePolyFromSamples(labByRange[id]);
+                            labByRange[id] = normalizeLabEntry(o.labByRange[id]);
                         }
                     }
                 }
@@ -546,7 +494,7 @@ function buildDom(root) {
 <div class="ohm-root">
   <div class="ohm-hero">
     <div class="ohm-title">Ohmic Master</div>
-    <p class="ohm-sub">電阻鑑定師：精準之路 · 校準專家 · G2 分壓量測<br>公式：R_x = R_pu × ADC ÷ (4095 − ADC)</p>
+    <p class="ohm-sub">電阻鑑定師：精準之路 · 校準專家 · G2 分壓量測<br>物理模型：V = ${VCC_MV} mV × R_x ÷ (R_x + R_pullup)；裝置送上來的是 0–4095 比例讀值（對應接腳電壓）。現有韌體即可量測與校準；若日後更新韌體，可再享有 eFuse ADC 表與過採樣等強化。</p>
   </div>
   <div class="ohm-tabs">
     <button type="button" class="ohm-tab ohm-tab--active" data-tab="m">測量</button>
@@ -555,15 +503,15 @@ function buildDom(root) {
   <div class="ohm-panel ohm-panel--visible" data-panel="m">
     <div class="ohm-mode-row">${modeBtns}</div>
     <div class="ohm-readout">
-      <div class="ohm-readout-label">鑑定讀數 R_x（擬合優先）</div>
+      <div class="ohm-readout-label">鑑定讀數 R_x（分壓公式 · R_pullup′）</div>
       <div class="ohm-readout-val" id="ohm-rx-val">—</div>
       <div class="ohm-readout-raw" id="ohm-adc-raw"></div>
     </div>
     <div class="ohm-warn ohm-warn--ok" id="ohm-warn">連線後顯示讀值。</div>
-    <p class="ohm-formula">量程安全：ADC&lt;${ADC_SAFE_LO} 或 &gt;${ADC_SAFE_HI} 時顯示邊界電阻提示。多項式擬合後以反解 R 優先。</p>
+    <p class="ohm-formula">量程安全：比例讀值 &lt;${ADC_SAFE_LO} 或 &gt;${ADC_SAFE_HI} 時顯示邊界電阻提示。The Lab 以多點平均反推並儲存 R_pullup（取代拋物線擬合）。</p>
   </div>
   <div class="ohm-panel" data-panel="lab">
-    <p>多點採樣：調整待測電阻至穩定，輸入已知 R，按「記錄」。至少 3 點可做二次擬合（建議 5 點）。</p>
+    <p>多點採樣：接好已知電阻與量程上拉，待讀值穩定後輸入 R_已知，按「記錄」。再按「套用分壓校準」將各點反推之 R_pullup 取平均並儲存（G2 內建上拉預設對應低阻程約 10kΩ，可由校準更新）。</p>
     <div class="ohm-lab-grid">
       <div class="ohm-input-row">
         <label for="ohm-known-r">已知 R (Ω)</label>
@@ -571,11 +519,11 @@ function buildDom(root) {
         <button type="button" class="ohm-btn" id="ohm-record">記錄</button>
       </div>
       <table class="ohm-table">
-        <thead><tr><th>#</th><th>R 已知 (Ω)</th><th>ADC</th></tr></thead>
+        <thead><tr><th>#</th><th>R 已知 (Ω)</th><th>V 換算 (mV)</th><th>比例讀值</th></tr></thead>
         <tbody id="ohm-samples-body"></tbody>
       </table>
       <div class="ohm-input-row">
-        <button type="button" class="ohm-btn" id="ohm-fit">多項式擬合（最小二乘）</button>
+        <button type="button" class="ohm-btn" id="ohm-fit">套用分壓校準（平均 R_pullup）</button>
         <button type="button" class="ohm-btn" id="ohm-clear-samples">清除本量程採樣</button>
       </div>
       <pre class="ohm-lab-out" id="ohm-lab-out"></pre>
