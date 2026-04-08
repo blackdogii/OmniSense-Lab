@@ -3,20 +3,20 @@
   "experiments": [
     {
       "id": "dashboard",
-      "label": "ä¸»æ§??,
-      "shortLabel": "ä¸»æ§??,
+      "label": "\u4e3b\u63a7\u53f0",
+      "shortLabel": "\u4e3b\u63a7\u53f0",
       "icon": "layout-dashboard",
-      "subtitle": "ç³»çµ±ä¸»æ§??
+      "subtitle": "\u7cfb\u7d71\u4e3b\u63a7\u53f0"
     },
     {
       "id": "omni-forge-bowsmith",
-      "label": "Omni-Forge å¼“å?è©¦ç?",
-      "shortLabel": "?›é€?,
+      "label": "Omni-Forge \u5f13\u5320\u8a66\u7149",
+      "shortLabel": "\u935b\u9020",
       "icon": "flame",
       "subtitle": "The Bowsmith Trial",
-      "description": "Voidï¼Titanï¼Return ä¸‰é? ?5 æ¬¡ï??ªå°¾?‡å??é?æ³•èƒ½?è??ç?å­è??‘å??¸ã€?,
+      "description": "Void\uff0fTitan\uff0fReturn \u4e09\u968e \u00d75 \u6b21\uff1b\u622a\u5c3e\u5747\u5206\u3001\u9b54\u6cd5\u80fd\u91cf\u8a08\u3001\u7c92\u5b50\u8207\u9451\u5b9a\u66f8\u3002",
       "hardwarePreset": {
-        "message": "å¼“å?è©¦ç??€ G0 è§¸æ§ + G2 ADCï¼?0k ä¸Šæ?ï¼‰ã€‚æ˜¯?¦å?æ­¥ï?",
+        "message": "\u5f13\u5320\u8a66\u7149\u9700 G0 \u89f8\u63a7 + G2 ADC\uff0810k \u4e0a\u62c9\uff09\u3002\u662f\u5426\u540c\u6b65\uff1f",
         "activeMask": 5,
         "pullupMask": 4,
         "freq": 100,
@@ -26,13 +26,13 @@
     },
     {
       "id": "ohm-meter-lab",
-      "label": "?»é˜»?‘å?å¸«ï?ç²¾æ?ä¹‹è·¯",
+      "label": "\u96fb\u963b\u9451\u5b9a\u5e2b\uff1a\u7cbe\u6e96\u4e4b\u8def",
       "shortLabel": "Ohm",
       "icon": "gauge",
-      "subtitle": "Ohmic Master Â· Ohm-Meter-Lab",
-      "description": "ä¸‰é?ç¨‹å?å£“é?æ¸¬ã€é??Œå??¨æ?ç¤ºã€The Lab å¤šé??¡æ??‡ä?æ¬¡å??…å??¬å?ï¼ˆæ?å°ä?ä¹˜ï???,
+      "subtitle": "Ohmic Master \u00b7 Ohm-Meter-Lab",
+      "description": "\u4e09\u91cf\u7a0b\u5206\u58d3\u91cf\u6e2c\u3001\u908a\u754c\u5b89\u5168\u63d0\u793a\u3001The Lab \u591a\u9ede\u6821\u6e96\u8207\u4e8c\u6b21\u591a\u9805\u5f0f\u64ec\u5408\uff08\u6700\u5c0f\u4e8c\u4e58\uff09\u3002",
       "hardwarePreset": {
-        "message": "?»é˜»?‘å?å¸«é? G2 ??ADC ä¸¦å??¨ä??‰ï?å¯¦é?ä¾é?ç¨‹æ›´?›ä??‰é›»?»ï??‚æ˜¯?¦å?æ­¥ï?",
+        "message": "\u96fb\u963b\u9451\u5b9a\u5e2b\u9700 G2 \u70ba ADC \u4e26\u555f\u7528\u4e0a\u62c9\uff08\u5be6\u9ad4\u4f9d\u91cf\u7a0b\u66f4\u63db\u4e0a\u62c9\u96fb\u963b\uff09\u3002\u662f\u5426\u540c\u6b65\uff1f",
         "activeMask": 4,
         "pullupMask": 4,
         "freq": 100,
@@ -42,13 +42,13 @@
     },
     {
       "id": "sense-synth",
-      "label": "Omniæ··éŸ³æ©?,
-      "shortLabel": "æ··éŸ³æ©?,
+      "label": "Omni\u6df7\u97f3\u6a5f",
+      "shortLabel": "\u6df7\u97f3\u6a5f",
       "icon": "sliders-horizontal",
-      "subtitle": "äº”è·¯?Ÿæ¸¬?³æ?æ··éŸ³",
-      "description": "?³è‰²é¢¨æ ¼?è¨­ï¼ˆå„ªç¾ï?é­”å¹»ï¼è‡ªè¨‚ï??ADSR ?…çµ¡?Noise Gate?ä?è»Œå½©?²ç¤ºæ³¢è??³æ? Hz??,
+      "subtitle": "\u4e94\u8def\u611f\u6e2c\u5373\u6642\u6df7\u97f3",
+      "description": "\u97f3\u8272\u98a8\u683c\u9810\u8a2d\uff08\u512a\u7f8e\uff0f\u9b54\u5e7b\uff0f\u81ea\u8a02\uff09\u3001ADSR \u5305\u7d61\u3001Noise Gate\u3001\u4e94\u8ecc\u5f69\u8272\u793a\u6ce2\u8207\u5373\u6642 Hz\u3002",
       "hardwarePreset": {
-        "message": "Omniæ··éŸ³æ©Ÿé??Ÿç”¨ GPIO 1?? å°æ??„ä?è·¯æ?æ¸¬è¼¸?¥ã€‚æ˜¯?¦å?æ­¥ï?",
+        "message": "Omni\u6df7\u97f3\u6a5f\u9700\u555f\u7528 GPIO 0\u20134 \u5c0d\u61c9\u7684\u4e94\u8def\u611f\u6e2c\u8f38\u5165\u3002\u662f\u5426\u540c\u6b65\uff1f",
         "activeMask": 31,
         "pullupMask": 0,
         "freq": 80,
@@ -58,13 +58,13 @@
     },
     {
       "id": "analog-rocket",
-      "label": "?Ÿé??…èˆª?…ï?é¡æ?å¼•æ?",
-      "shortLabel": "?ªè€?,
+      "label": "\u661f\u969b\u65c5\u822a\u8005\uff1a\u985e\u6bd4\u5f15\u64ce",
+      "shortLabel": "\u822a\u8005",
       "icon": "rocket",
-      "subtitle": "Interstellar Voyager Â· Analog Engine",
-      "description": "?Ÿæ¸¬?¡æ?ç²¾é??æ¨?›ä??¸ã€è??Ÿé€ƒè„«æ©«å??²è»¸?å°¾?„è?å¼•æ??ˆæ??³ã€?,
+      "subtitle": "Interstellar Voyager \u00b7 Analog Engine",
+      "description": "\u611f\u6e2c\u6821\u6e96\u7cbe\u9748\u3001\u63a8\u529b\u4fc2\u6578\u3001\u884c\u661f\u9003\u812b\u6a6b\u5411\u6372\u8ef8\u3001\u5c3e\u7130\u8207\u5f15\u64ce\u5408\u6210\u97f3\u3002",
       "hardwarePreset": {
-        "message": "é¡æ?å¼•æ??€?Ÿç”¨ G0?“G5ï¼ˆå?äº”è·¯é¡æ? + G5 ?¸ä?ï¼‰ã€‚æ˜¯?¦å?æ­¥ï?",
+        "message": "\u985e\u6bd4\u5f15\u64ce\u9700\u555f\u7528 G0\u2013G5\uff08\u524d\u4e94\u8def\u985e\u6bd4 + G5 \u6578\u4f4d\uff09\u3002\u662f\u5426\u540c\u6b65\uff1f",
         "activeMask": 63,
         "pullupMask": 0,
         "freq": 90,
