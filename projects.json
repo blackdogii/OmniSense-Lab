@@ -64,8 +64,8 @@
       "subtitle": "Interstellar Voyager \u00b7 Analog Engine",
       "description": "\u611f\u6e2c\u6821\u6e96\u7cbe\u9748\u3001\u63a8\u529b\u4fc2\u6578\u3001\u884c\u661f\u9003\u812b\u6a6b\u5411\u6372\u8ef8\u3001\u5c3e\u7130\u8207\u5f15\u64ce\u5408\u6210\u97f3\u3002",
       "hardwarePreset": {
-        "message": "\u985e\u6bd4\u5f15\u64ce\u9700\u555f\u7528 G0\u2013G5\uff08\u524d\u4e94\u8def\u985e\u6bd4 + G5 \u6578\u4f4d\uff09\u3002\u662f\u5426\u540c\u6b65\uff1f",
-        "activeMask": 63,
+        "message": "\u985e\u6bd4\u5f15\u64ce\u91cf\u6e2c\u50c5\u958b\u653e G0\u2013G4\uff08\u4e94\u8def\u985e\u6bd4\uff09\u3002\u662f\u5426\u540c\u6b65\uff1f",
+        "activeMask": 31,
         "pullupMask": 0,
         "freq": 90,
         "res": 1,

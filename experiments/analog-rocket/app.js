@@ -15,11 +15,13 @@ const STALE_MS = 520;
 const OUT_OF_RANGE_MARGIN = 160;
 const ADC_MAX = 4095;
 const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
-const PRESET_ACTIVE = 0x3f;
+/** Analog inputs only (logical G0–G4); G5 is not offered in this lab. */
+const PRESET_ACTIVE = 0x1f;
 const PRESET_PULLUP = 0;
 
-/** Pin indices available in settings: logical channels 0–5 */
-const PIN_OPTIONS = [0, 1, 2, 3, 4, 5];
+/** Pin indices available in settings: logical analog channels G0–G4 only */
+const PIN_OPTIONS = [0, 1, 2, 3, 4];
+const PIN_INDEX_MAX = 4;
 
 let rootEl = null;
 let styleLink = null;
@@ -30,7 +32,9 @@ let gameP5 = null;
 let activeView = 'hub';
 let wizardStep = 1;
 let wizardBuf = [];
-let wizardPeakAcc = 0;
+/** Min/max ADC observed during wizard step 2 (max-thrust pass). */
+let wizardStep2Min = ADC_MAX;
+let wizardStep2Max = 0;
 let linearRampProgress = 0;
 /** Locked logical channel while wizard runs (frozen pin). */
 let wizardLockedPin = null;
@@ -86,16 +90,20 @@ function readRawStore() {
 function loadSavedPinIndex() {
     const o = readRawStore();
     if (!o) return 0;
-    return Math.max(0, Math.min(5, Number(o.pinIndex) || 0));
+    const raw = Number(o.pinIndex);
+    if (!Number.isFinite(raw) || raw > PIN_INDEX_MAX || raw < 0) return 0;
+    return Math.max(0, Math.min(PIN_INDEX_MAX, raw));
 }
 
 function loadStoredCalibration() {
     const o = readRawStore();
     if (!o || !o.linearOk) return null;
-    const pinIndex = Math.max(0, Math.min(5, Number(o.pinIndex) || 0));
+    const rawPin = Number(o.pinIndex);
+    if (!Number.isFinite(rawPin) || rawPin > PIN_INDEX_MAX || rawPin < 0) return null;
+    const pinIndex = Math.max(0, Math.min(PIN_INDEX_MAX, rawPin));
     const baseline = Number(o.baseline);
     const peak = Number(o.peak);
-    if (!Number.isFinite(baseline) || !Number.isFinite(peak) || peak <= baseline + 8) return null;
+    if (!Number.isFinite(baseline) || !Number.isFinite(peak) || Math.abs(peak - baseline) < 8) return null;
     return { pinIndex, baseline, peak, linearOk: true };
 }
 
@@ -117,24 +125,25 @@ function clearStoredCalibration() {
 
 function pinLabelZh(idx) {
     const gpio = PINS_CONFIG[idx]?.gpio ?? idx;
-    const tail = idx === 5 ? '（數位）' : '';
-    return `G${idx} · GPIO ${gpio}${tail}`;
+    return `G${idx} · GPIO ${gpio}`;
 }
 
 /**
- * Map raw ADC to thrust 0..1 using two-point calibration.
+ * Map raw ADC to thrust 0..1 using two-point calibration (rest = base, full thrust = peak).
+ * Supports both directions: peak may be below base (e.g. flex to GND) or above base.
  */
 function thrustFromCalibration(raw, base, peak) {
-    const span = Math.max(peak - base, 1);
+    const span = peak - base;
+    if (Math.abs(span) < 1) return 0;
     const t = (raw - base) / span;
     return Math.max(0, Math.min(1, t));
 }
 
 function isSignalOutOfRange(raw) {
     if (!calibration) return false;
-    const lo = calibration.baseline - OUT_OF_RANGE_MARGIN;
-    const hi = calibration.peak + OUT_OF_RANGE_MARGIN;
-    return raw < lo || raw > hi;
+    const loEnd = Math.min(calibration.baseline, calibration.peak) - OUT_OF_RANGE_MARGIN;
+    const hiEnd = Math.max(calibration.baseline, calibration.peak) + OUT_OF_RANGE_MARGIN;
+    return raw < loEnd || raw > hiEnd;
 }
 
 function showView(name) {
@@ -154,7 +163,7 @@ function resolveDataPin() {
     if (wizardLockedPin != null) return wizardLockedPin;
     if (calibration) return calibration.pinIndex;
     const sel = rootEl?.querySelector('#ar-pin-select');
-    return Math.max(0, Math.min(5, parseInt(sel?.value ?? '0', 10)));
+    return Math.max(0, Math.min(PIN_INDEX_MAX, parseInt(sel?.value ?? '0', 10)));
 }
 
 function updateHubVisibility() {
@@ -390,7 +399,7 @@ function onSensor(ev) {
     const raw = ch.filtered;
     runtime.lastRaw = raw;
 
-    if (calibration && calibration.peak > calibration.baseline + 8) {
+    if (calibration && Math.abs(calibration.peak - calibration.baseline) > 8) {
         runtime.thrustFactor = thrustFromCalibration(raw, calibration.baseline, calibration.peak);
     } else {
         runtime.thrustFactor = 0;
@@ -407,9 +416,10 @@ function onSensor(ev) {
         wizardBuf.push(raw);
         if (wizardBuf.length > 96) wizardBuf.shift();
     } else if (wizardStep === 2) {
-        wizardPeakAcc = Math.max(wizardPeakAcc, raw);
+        wizardStep2Min = Math.min(wizardStep2Min, raw);
+        wizardStep2Max = Math.max(wizardStep2Max, raw);
     } else if (wizardStep === 3) {
-        if (calibration && calibration.peak > calibration.baseline + 8) {
+        if (calibration && Math.abs(calibration.peak - calibration.baseline) > 8) {
             linearRampProgress = Math.max(linearRampProgress, runtime.thrustFactor);
         }
         const pct = Math.round(linearRampProgress * 100);
@@ -432,7 +442,7 @@ function clearWizardTimers() {
 
 function getSelectedPinFromUi() {
     const sel = rootEl?.querySelector('#ar-pin-select');
-    return Math.max(0, Math.min(5, parseInt(sel?.value ?? '0', 10)));
+    return Math.max(0, Math.min(PIN_INDEX_MAX, parseInt(sel?.value ?? '0', 10)));
 }
 
 function startWizardFromStep1() {
@@ -440,7 +450,8 @@ function startWizardFromStep1() {
     wizardLockedPin = getSelectedPinFromUi();
     wizardStep = 1;
     wizardBuf = [];
-    wizardPeakAcc = 0;
+    wizardStep2Min = ADC_MAX;
+    wizardStep2Max = 0;
     linearRampProgress = 0;
     calibration = {
         pinIndex: wizardLockedPin,
@@ -478,7 +489,8 @@ function renderWizardStepUi() {
             const avg = sum / wizardBuf.length;
             if (calibration) calibration.baseline = avg;
             wizardStep = 2;
-            wizardPeakAcc = avg;
+            wizardStep2Min = ADC_MAX;
+            wizardStep2Max = 0;
             renderWizardStepUi();
         });
     } else if (wizardStep === 2) {
@@ -486,19 +498,34 @@ function renderWizardStepUi() {
         body.innerHTML = `
           <p class="ar-label">請<strong>用力壓到底</strong>維持約一秒，然後點選記錄峰值。</p>
           <button type="button" class="ar-btn ar-btn--primary" id="ar-wiz-b2">記錄峰值</button>
-          <p class="ar-hud">即時 ADC：<span id="ar-wizard-adc-live">—</span><br>目前峰值候選：<span id="ar-wiz-peak-hint">—</span></p>`;
+          <p class="ar-hud">即時 ADC：<span id="ar-wizard-adc-live">—</span><br>採樣區間（低～高）：<span id="ar-wiz-peak-hint">—</span></p>`;
         const hint = rootEl.querySelector('#ar-wiz-peak-hint');
         wizardPeakUiTimer = window.setInterval(() => {
-            if (hint) hint.textContent = String(wizardPeakAcc);
+            if (hint) {
+                hint.textContent =
+                    wizardStep2Max >= wizardStep2Min
+                        ? `${Math.round(wizardStep2Min)}～${Math.round(wizardStep2Max)}`
+                        : '—';
+            }
         }, 120);
         rootEl.querySelector('#ar-wiz-b2')?.addEventListener('click', () => {
             clearWizardTimers();
-            const peak = wizardPeakAcc;
-            if (!calibration || peak < calibration.baseline + 24) {
-                window.alert('峰值不足，與基準差異過小。請再用力加壓後重試。');
+            const base = calibration?.baseline ?? 0;
+            const dHigh = wizardStep2Max - base;
+            const dLow = base - wizardStep2Min;
+            /** Full-thrust ADC: whichever extreme is farther from rest (high or low). */
+            const peak =
+                dHigh >= dLow ? wizardStep2Max : wizardStep2Min;
+            if (!calibration || Math.abs(peak - base) < 24) {
+                window.alert('與基準差異過小，無法取得最大出力端點。請確認已加壓至底或採樣區間有含蓋極值後重試。');
                 wizardPeakUiTimer = window.setInterval(() => {
                     const h = rootEl?.querySelector('#ar-wiz-peak-hint');
-                    if (h) h.textContent = String(wizardPeakAcc);
+                    if (h) {
+                        h.textContent =
+                            wizardStep2Max >= wizardStep2Min
+                                ? `${Math.round(wizardStep2Min)}～${Math.round(wizardStep2Max)}`
+                                : '—';
+                    }
                 }, 120);
                 return;
             }
@@ -578,7 +605,7 @@ function injectShellHtml() {
     <h1>設定</h1>
     <p class="ar-sub">STORAGE · PIN & CALIBRATION</p>
     <div class="ar-panel">
-      <label class="ar-label" for="ar-pin-select">量測腳位（邏輯通道 G0–G5）</label>
+      <label class="ar-label" for="ar-pin-select">量測腳位（邏輯通道 G0–G4 · 類比）</label>
       <select id="ar-pin-select" class="ar-select">${pinSel}</select>
       <div class="ar-row" style="margin-top:0.75rem">
         <button type="button" class="ar-btn ar-btn--primary" id="ar-save-settings">儲存腳位</button>
@@ -740,7 +767,7 @@ export async function mount(root) {
 export async function onConnected() {
     await applyDevicePreset();
     const si = document.getElementById('syncIndicator');
-    if (si) si.innerText = '⚡ 類比引擎：G0–G5 已啟用';
+    if (si) si.innerText = '⚡ 類比引擎：G0–G4 已啟用';
 }
 
 export async function cleanup() {
