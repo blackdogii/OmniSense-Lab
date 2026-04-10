@@ -396,6 +396,12 @@ async function init() {
     document.getElementById('disconnectBtn')?.addEventListener('click', onDisconnectClick);
     window.addEventListener('omnisense:ble-disconnected', onDisconnectClick);
 
+    /** 弓匠試煉等模組：通關後請求切換下一個官方實驗（預設電阻鑑定師） */
+    window.addEventListener('omnisense:forge-next', (ev) => {
+        const id = typeof ev.detail?.nextId === 'string' && ev.detail.nextId ? ev.detail.nextId : 'analog-rocket';
+        launchOfficialExperiment(id).catch(console.error);
+    });
+
     if (window.lucide) window.lucide.createIcons();
     startEventLoop();
 

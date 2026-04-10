@@ -29,6 +29,9 @@ const PRESET_ACTIVE = 0x05;
 const PRESET_PULLUP = 0x04;
 const PRESET_MODES = ['touch', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 
+/** 通關後由 Shell 載入的下一個官方實驗（類比引擎） */
+const NEXT_TRIAL_ID = 'analog-rocket';
+
 const TOUCH_EMA_A = 0.14;
 const TOUCH_ON = 3;
 const TOUCH_OFF = 2;
@@ -239,11 +242,12 @@ function finalizeTrial(score) {
     } else if (finalScore < PASS_SCORE) {
         failedFullRuns++;
     }
+    /** 與雷達四軸一致：虛空 → 巨力 → 回響 → 穩定（皆為 0～1） */
     radarVals = [
-        Math.min(1, finalScore / 100),
         Math.min(1, Math.max(0, (45 - baselineStd) / 45)),
+        Math.min(1, curDelta / 950),
         Math.min(1, (900 - Math.min(recMs || 400, 900)) / 900),
-        trialScores.length >= 2 ? 1 - Math.min(1, Math.abs(trialScores[0] - trialScores[trialScores.length - 1]) / 100) : 0.5
+        Math.min(1, Math.max(0, 1 - Math.min(driftPct, 14) / 14))
     ];
     phase = 'CERT';
     particles.length = 0;
@@ -276,6 +280,11 @@ function showCertificate(passed, effectivePass) {
     }
     if (sc) {
         sc.innerHTML = `截尾均分 <strong>${finalScore}</strong> / 100<span class="of-score-meta">（${TRIALS_REQUIRED} 次試煉，去最高／最低）</span>`;
+    }
+    const legendPct = rootEl?.querySelector('#of-radar-pct');
+    if (legendPct && radarVals.length === 4) {
+        const pct = (x) => Math.round(Math.min(100, Math.max(0, x * 100)));
+        legendPct.innerHTML = radarVals.map((v, i) => `<span>${pct(v)}%</span>`).join(' · ');
     }
     if (relaxBanner) {
         const showRelax = effectivePass < PASS_SCORE;
@@ -676,12 +685,31 @@ function buildDom(root) {
     <div class="of-stamp of-stamp--f" id="of-stamp">—</div>
     <p class="of-score-line" id="of-final-score"></p>
     <div class="of-cert-radar-host" id="of-cert-radar"></div>
+    <p class="of-radar-pct" id="of-radar-pct" aria-label="四向度量化"></p>
+    <dl class="of-radar-legend">
+      <div class="of-radar-legend__item">
+        <dt>虛空</dt>
+        <dd>穩定度／雜訊</dd>
+      </div>
+      <div class="of-radar-legend__item">
+        <dt>巨力</dt>
+        <dd>形變造成的變化</dd>
+      </div>
+      <div class="of-radar-legend__item">
+        <dt>回響</dt>
+        <dd>回到基準的快慢</dd>
+      </div>
+      <div class="of-radar-legend__item">
+        <dt>穩定</dt>
+        <dd>釋放後是否易振盪</dd>
+      </div>
+    </dl>
     <p class="of-lock-msg hidden" id="of-lock-msg"></p>
-    <p class="of-pass-msg hidden" id="of-pass-msg">試煉通過：下一試煉已解鎖（可自實驗選單進入）。</p>
+    <p class="of-pass-msg hidden" id="of-pass-msg">試煉通過：請按下方按鈕進入「類比引擎」延續實驗。</p>
   </div>
   <div class="of-actions">
     <button type="button" class="of-btn of-btn--primary" id="of-continue">繼續鍛造（G0 或此鍵）</button>
-    <button type="button" class="of-btn of-btn--ghost hidden" id="of-next" disabled>前往下一試煉</button>
+    <button type="button" class="of-btn of-btn--ghost hidden" id="of-next" disabled>前往下一試煉：類比引擎</button>
     <button type="button" class="of-btn of-btn--danger hidden" id="of-remake">Remake 重新鍛造</button>
   </div>
 </div>`;
@@ -692,8 +720,11 @@ function buildDom(root) {
     });
     root.querySelector('#of-remake')?.addEventListener('click', () => resetAll());
     root.querySelector('#of-next')?.addEventListener('click', () => {
-        window.dispatchEvent(new CustomEvent('omnisense:forge-next', { detail: { score: finalScore } }));
-        window.alert('請由上方「實驗專案」選單切換至下一個模組。');
+        window.dispatchEvent(
+            new CustomEvent('omnisense:forge-next', {
+                detail: { score: finalScore, nextId: NEXT_TRIAL_ID }
+            })
+        );
     });
 }
 

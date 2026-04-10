@@ -445,6 +445,72 @@
     z-index: 1;
 }
 
+.of-radar-pct {
+    text-align: center;
+    font-size: clamp(0.78rem, 2.4vw, 0.88rem);
+    font-variant-numeric: tabular-nums;
+    color: rgba(148, 163, 184, 0.95);
+    margin: 0.35rem 0 0.65rem;
+    position: relative;
+    z-index: 1;
+    letter-spacing: 0.02em;
+}
+
+.of-radar-legend {
+    margin: 0;
+    padding: 0.65rem 0.75rem 0.25rem;
+    position: relative;
+    z-index: 1;
+    border-radius: 0.65rem;
+    background: rgba(15, 23, 42, 0.55);
+    border: 1px solid rgba(51, 65, 85, 0.45);
+}
+
+.of-radar-legend__item {
+    margin: 0 0 0.65rem;
+    padding-bottom: 0.55rem;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.5);
+}
+
+.of-radar-legend__item:last-child {
+    margin-bottom: 0;
+    padding-bottom: 0;
+    border-bottom: none;
+}
+
+.of-radar-legend dt {
+    font-size: clamp(0.82rem, 2.5vw, 0.92rem);
+    font-weight: 800;
+    color: var(--of-cyan);
+    margin: 0 0 0.25rem;
+    letter-spacing: 0.04em;
+}
+
+.of-radar-legend dd {
+    margin: 0;
+    font-size: clamp(0.78rem, 2.4vw, 0.88rem);
+    line-height: 1.55;
+    color: var(--of-muted);
+}
+
+.of-radar-legend dd strong {
+    color: #cbd5e1;
+    font-weight: 600;
+}
+
+.of-layout--desktop .of-radar-legend {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 0.5rem 1rem;
+    padding: 0.85rem 1rem;
+}
+
+.of-layout--desktop .of-radar-legend__item {
+    margin: 0;
+    padding-bottom: 0.5rem;
+    border-bottom: none;
+}
+
 .of-score-line {
     text-align: center;
     margin-top: 0.55rem;
