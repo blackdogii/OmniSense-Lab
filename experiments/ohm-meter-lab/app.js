@@ -13,9 +13,15 @@ const CH_BUILTIN = 2;
 const EXT_CHANNELS = [0, 1, 3, 4];
 
 const ADC_MAX = 4095;
-const ADC_SAFE_LO = 500;
-const ADC_SAFE_HI = 3500;
 const VCC_MV = 3300;
+
+/** 電壓區域邊界（mV）— 對應 ADC 非線性／飽和特性 */
+const ZONE_DEAD_MV = 150;
+const ZONE_LINEAR_HI_MV = 2450;
+const ZONE_NONLINEAR_HI_MV = 3100;
+
+/** 校準時排拒死區端點 */
+const CALIB_MIN_V_MV = ZONE_DEAD_MV + 20;
 const STORAGE_KEY_V3 = 'omnisense_ohm_meter_lab_v3';
 const STORAGE_KEY_V2 = 'omnisense_ohm_meter_lab_v2';
 
@@ -28,11 +34,17 @@ const EXT_RANGE_MODES = [
     { id: '1M', label: '1 MΩ', rPuNom: 1e6 }
 ];
 
+/** 開路／拆件：讀值回到高位 */
 const ADC_ATTACH_MAX = 3480;
 const ADC_REMOVE_MIN = 3680;
-const SETTLE_NEED = 14;
-const SETTLE_SPREAD_MAX = 10;
-const SETTLE_BUF_MAX = 24;
+
+/** 較長緩衝 + 中位數鎖定 + P90−P10 展開：抗突波、換安定換算 */
+const SETTLE_NEED = 40;
+/** P90 與 P10 差容許值（ADC 碼） */
+const SETTLE_SPREAD_P90P10_MAX = 10;
+const SETTLE_BUF_MAX = 64;
+/** 擴展：連續多窗無法穩定 → 疑似懸空或接线問題 */
+const SETTLE_STALL_REJECTS = 14;
 
 let rootEl = null;
 let styleLink = null;
@@ -54,6 +66,31 @@ let measurePhase = 'no_dut';
 let settleBuf = [];
 let lockedAdc = null;
 let lockedRxVal = null;
+let settleRejectCount = 0;
+/** 擴展模式：久未穩定時提示檢查懸空 */
+let extensionSettleStall = false;
+
+function medianAdc(buf) {
+    if (!buf.length) return 0;
+    const s = [...buf].sort((a, b) => a - b);
+    const n = s.length;
+    if (n % 2 === 1) return s[(n - 1) >> 1];
+    return (s[n / 2 - 1] + s[n / 2]) / 2;
+}
+
+/** 穩健展開（比 max−min 不易受單點突波影響） */
+function spreadP90P10(buf) {
+    if (buf.length < 12) return Infinity;
+    const s = [...buf].sort((a, b) => a - b);
+    const p = (q) => {
+        const idx = (q / 100) * (s.length - 1);
+        const lo = Math.floor(idx);
+        const hi = Math.ceil(idx);
+        if (lo === hi) return s[lo];
+        return s[lo] + (s[hi] - s[lo]) * (idx - lo);
+    };
+    return p(90) - p(10);
+}
 
 function injectCss() {
     if (styleLink) return;
@@ -111,6 +148,16 @@ function adcToMv(adc) {
     return (adc / ADC_MAX) * VCC_MV;
 }
 
+/** @returns {'dead' | 'linear' | 'nonlinear' | 'saturation'} */
+function adcVoltageZone(adc) {
+    const a = typeof adc === 'number' && Number.isFinite(adc) ? adc : 0;
+    const v = adcToMv(a);
+    if (v <= ZONE_DEAD_MV) return 'dead';
+    if (v <= ZONE_LINEAR_HI_MV) return 'linear';
+    if (v <= ZONE_NONLINEAR_HI_MV) return 'nonlinear';
+    return 'saturation';
+}
+
 function rxIdeal(adc, rPu) {
     if (adc <= 0 || adc >= ADC_MAX) return NaN;
     return (rPu * adc) / (ADC_MAX - adc);
@@ -123,7 +170,7 @@ function rxDisplay(adc) {
 function rPullupFromKnownRAndAdc(rKnown, adc) {
     const v = adcToMv(adc);
     if (!Number.isFinite(rKnown) || rKnown <= 0) return NaN;
-    if (v <= 1 || v >= VCC_MV - 1) return NaN;
+    if (v <= CALIB_MIN_V_MV || v >= VCC_MV - 1) return NaN;
     return (rKnown * (VCC_MV - v)) / v;
 }
 
@@ -141,10 +188,6 @@ function theoreticalAdcFromR(rOhms, rPu) {
     if (!Number.isFinite(rOhms) || !Number.isFinite(rPu) || rOhms <= 0 || rPu <= 0) return NaN;
     const x = (ADC_MAX * rOhms) / (rOhms + rPu);
     return Math.max(0, Math.min(ADC_MAX, x));
-}
-
-function boundaryRAt(adcGate, rPu) {
-    return rxIdeal(adcGate, rPu);
 }
 
 function formatOhm(r) {
@@ -285,6 +328,8 @@ function resetMeasurePipeline() {
     settleBuf = [];
     lockedAdc = null;
     lockedRxVal = null;
+    settleRejectCount = 0;
+    extensionSettleStall = false;
 }
 
 function stepMeasurePipeline(adc) {
@@ -292,6 +337,8 @@ function stepMeasurePipeline(adc) {
         if (adc <= ADC_ATTACH_MAX) {
             measurePhase = 'settling';
             settleBuf = [adc];
+            settleRejectCount = 0;
+            extensionSettleStall = false;
         }
         return;
     }
@@ -303,13 +350,22 @@ function stepMeasurePipeline(adc) {
         settleBuf.push(adc);
         if (settleBuf.length > SETTLE_BUF_MAX) settleBuf.shift();
         if (settleBuf.length < SETTLE_NEED) return;
-        const mn = Math.min(...settleBuf);
-        const mx = Math.max(...settleBuf);
-        if (mx - mn > SETTLE_SPREAD_MAX) return;
-        const avg = settleBuf.reduce((a, b) => a + b, 0) / settleBuf.length;
-        const rxTry = rxDisplay(avg);
-        if (avg < 8 || avg > ADC_MAX - 8 || !Number.isFinite(rxTry)) return;
-        lockedAdc = avg;
+        const spr = spreadP90P10(settleBuf);
+        if (spr > SETTLE_SPREAD_P90P10_MAX) {
+            settleRejectCount++;
+            if (wiringMode === 'extension' && settleRejectCount >= SETTLE_STALL_REJECTS) {
+                extensionSettleStall = true;
+                settleBuf = [];
+                settleRejectCount = 0;
+            }
+            return;
+        }
+        settleRejectCount = 0;
+        extensionSettleStall = false;
+        const med = medianAdc(settleBuf);
+        const rxTry = rxDisplay(med);
+        if (med <= 0 || med >= ADC_MAX - 5 || !Number.isFinite(rxTry)) return;
+        lockedAdc = med;
         lockedRxVal = rxTry;
         measurePhase = 'locked';
         return;
@@ -328,7 +384,10 @@ function updateMeasureUi() {
         if (measurePhase === 'no_dut') elR.textContent = '—';
         else if (measurePhase === 'settling') {
             const n = settleBuf.length;
-            elR.textContent = n >= 4 ? `${formatOhm(rxDisplay(settleBuf.reduce((a, b) => a + b, 0) / n))}（平均中）` : '…';
+            if (n >= 8) {
+                const med = medianAdc(settleBuf);
+                elR.textContent = `${formatOhm(rxDisplay(med))}（穩定中）`;
+            } else elR.textContent = '…';
         } else elR.textContent = formatOhm(lockedRxVal);
     }
 
@@ -336,7 +395,8 @@ function updateMeasureUi() {
         if (measurePhase === 'no_dut') {
             elRaw.textContent = `ADC ${adcLive.toFixed(0)} · ${vMvLive.toFixed(0)} mV · R′${formatOhm(rPu)}`;
         } else if (measurePhase === 'settling') {
-            elRaw.textContent = `${adcLive.toFixed(0)} · ${settleBuf.length}/${SETTLE_NEED}`;
+            const hint = settleBuf.length >= 8 ? medianAdc(settleBuf) : adcLive;
+            elRaw.textContent = `n ${settleBuf.length}/${SETTLE_NEED} · 中位 ${hint.toFixed(0)}`;
         } else {
             const v = adcToMv(lockedAdc ?? 0);
             elRaw.textContent = `鎖定 ADC ${(lockedAdc ?? 0).toFixed(0)} · ${v.toFixed(0)} mV`;
@@ -347,7 +407,10 @@ function updateMeasureUi() {
     elWarn.classList.remove('ohm-warn--ok', 'hidden');
 
     if (measurePhase === 'no_dut') {
-        elWarn.textContent = '接上待測電阻到量測腳與 GND。';
+        elWarn.textContent =
+            wiringMode === 'extension'
+                ? '請接上待測電阻。擴展模式請確認外接上拉與 GND。'
+                : '請接上待測電阻到 G2 與 GND。';
         elWarn.classList.remove('ohm-warn--ok');
         return;
     }
@@ -359,22 +422,29 @@ function updateMeasureUi() {
     }
 
     if (measurePhase === 'settling') {
-        elWarn.textContent = '穩定中…';
+        if (wiringMode === 'extension' && extensionSettleStall) {
+            elWarn.textContent = '訊號久未穩定：請確認腳位未懸空、上拉與接線。';
+            elWarn.classList.remove('ohm-warn--ok');
+            return;
+        }
+        elWarn.textContent = '穩定中…（中位數 + 抗突波）';
         elWarn.classList.add('ohm-warn--ok');
         return;
     }
 
-    if (adcHint < ADC_SAFE_LO) {
-        const x = boundaryRAt(ADC_SAFE_LO, rPu);
-        elWarn.textContent = `讀值偏低 → R < ${formatOhm(x)}（可改擴展／上拉）`;
+    const z = adcVoltageZone(adcHint);
+    if (z === 'dead') {
+        elWarn.textContent = `死區（≤${ZONE_DEAD_MV} mV）：ADC 低端不準，僅供參考。`;
         elWarn.classList.remove('ohm-warn--ok');
-    } else if (adcHint > ADC_SAFE_HI) {
-        const x = boundaryRAt(ADC_SAFE_HI, rPu);
-        elWarn.textContent = `讀值偏高 → R > ${formatOhm(x)}（可改擴展／上拉）`;
+    } else if (z === 'linear') {
+        elWarn.textContent = `線性區（約 ${ZONE_DEAD_MV}–${ZONE_LINEAR_HI_MV} mV）：已鎖定。取下後重測。`;
+        elWarn.classList.add('ohm-warn--ok');
+    } else if (z === 'nonlinear') {
+        elWarn.textContent = `非線性區（約 ${ZONE_LINEAR_HI_MV}–${ZONE_NONLINEAR_HI_MV} mV）：誤差較大，建議改量程或分壓。`;
         elWarn.classList.remove('ohm-warn--ok');
     } else {
-        elWarn.textContent = '已鎖定。取下元件後重新量測。';
-        elWarn.classList.add('ohm-warn--ok');
+        elWarn.textContent = `飽和區（>${ZONE_NONLINEAR_HI_MV} mV）：結果不建議採用，請改擴展／上拉或阻值。`;
+        elWarn.classList.remove('ohm-warn--ok');
     }
 }
 
@@ -584,7 +654,8 @@ function wireUi() {
             window.alert('請輸入有效的已知電阻值（Ω）。');
             return;
         }
-        getLab().samples.push({ r: v, adc: lastAdc });
+        const adcRec = measurePhase === 'locked' && lockedAdc != null ? lockedAdc : lastAdc;
+        getLab().samples.push({ r: v, adc: adcRec });
         saveStorage();
         renderLabTable();
         updateLabOut();
@@ -665,7 +736,8 @@ async function applyPreset() {
     const mask = (1 << ch) & 0x01ff;
     omni.channelMode = [...PRESET_MODES];
     omni.activeMask = mask;
-    omni.pullupMask = wiringMode === 'builtin' ? mask : 0;
+    /** G2 版載 10 kΩ；韌體「內建上拉」會與其並聯（≈45 kΩ）使分壓偏低、R_x 偏大。內建／擴展均關閉軟體上拉。 */
+    omni.pullupMask = 0;
     await applyDeviceConfig({
         freq: omni.lastFreq,
         res: omni.lastRes,
@@ -708,7 +780,7 @@ function buildDom(root) {
       <button type="button" class="ohm-wiring-btn ohm-wiring-btn--on" data-wiring="builtin">內建</button>
       <button type="button" class="ohm-wiring-btn" data-wiring="extension">擴展</button>
     </div>
-    <p id="ohm-builtin-hint" class="ohm-hint">G2 · 10kΩ</p>
+    <p id="ohm-builtin-hint" class="ohm-hint">G2 版載 10 kΩ（勿開內建上拉）</p>
     <div id="ohm-ext-controls" class="hidden">
       <div class="ohm-input-row ohm-input-row--tight">
         <label for="ohm-ext-pin">腳位</label>
