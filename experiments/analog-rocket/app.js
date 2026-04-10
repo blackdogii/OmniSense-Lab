@@ -288,7 +288,7 @@ function tunnelProfile(p, worldX, scroll) {
 function gameCanvasDims(host) {
     const w = Math.max(300, host.clientWidth || 360);
     const desktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
-    const h = desktop ? 440 : 340;
+    const h = desktop ? 480 : 380;
     return { w, h, desktop };
 }
 
@@ -300,7 +300,12 @@ function mountGameSketch(host) {
         vy: 0,
         dead: false,
         startedAudio: false,
-        gameStartMs: 0
+        gameStartMs: 0,
+        /** @type {{ x: number; y: number; vx: number; vy: number; life: number; sz: number }[]} */
+        particles: [],
+        fxShake: 0,
+        nebulaPhase: 0,
+        lastThrust: 0
     };
 
     gameP5 = new P((p) => {
@@ -323,8 +328,11 @@ function mountGameSketch(host) {
             state.scroll = 0;
             state.dead = false;
             state.gameStartMs = performance.now();
+            state.particles = [];
+            state.fxShake = 0;
+            state.nebulaPhase = 0;
             alignRocketToTunnel();
-            p.frameRate(55);
+            p.frameRate(60);
             if (typeof ResizeObserver !== 'undefined') {
                 gameHostResizeObs = new ResizeObserver(() => {
                     requestAnimationFrame(() => {
@@ -386,14 +394,6 @@ function mountGameSketch(host) {
             }
             updateEngineHum(thrust);
 
-            p.background(4, 8, 20);
-            const wobble = p.sin(state.scroll * 0.002) * 6;
-            for (let i = 0; i < 50; i++) {
-                const x = (i * 37 + state.scroll * 0.15 + wobble) % p.width;
-                p.stroke(30, 58, 95, 40);
-                p.line(x, 0, x, p.height);
-            }
-
             const easeFlight = smoothstep01(Math.min(1, state.scroll / WARMUP_SCROLL_UNITS));
             const scrollSpeedMul = 0.28 + 0.72 * easeFlight;
             state.scroll += (1.05 + state.scroll * 0.000012) * scrollSpeedMul;
@@ -415,57 +415,227 @@ function mountGameSketch(host) {
             ) {
                 state.dead = true;
                 silenceEngineHum();
-                p.fill(248, 113, 113, 180);
+                p.noStroke();
+                for (let yy = 0; yy < p.height; yy++) {
+                    const t = yy / p.height;
+                    p.stroke(p.lerpColor(p.color(40, 8, 12), p.color(12, 6, 18), t));
+                    p.line(0, yy, p.width, yy);
+                }
+                p.fill(254, 202, 202, 230);
+                p.stroke(127, 29, 29, 180);
+                p.strokeWeight(3);
                 p.textAlign(p.CENTER, p.CENTER);
-                p.textSize(p.max(15, p.width * 0.045));
+                p.textSize(p.max(17, p.width * 0.048));
+                p.text('船體撞擊 · 任務結束', p.width / 2 + 2, p.height / 2 + 2);
+                p.fill(248, 113, 113);
+                p.noStroke();
                 p.text('船體撞擊 · 任務結束', p.width / 2, p.height / 2);
                 p.noLoop();
                 return;
             }
 
-            const ahead = 140;
-            p.stroke(34, 197, 94, 120);
-            p.strokeWeight(2);
+            state.nebulaPhase += 0.016 + thrust * 0.04;
+            state.fxShake = state.fxShake * 0.82 + thrust * p.random(-3.2, 3.2);
+            const shake = p.constrain(state.fxShake, -14, 14);
+
+            const thrustBump = Math.abs(thrust - state.lastThrust);
+            state.lastThrust = thrust;
+            const rx = ROCKET_X();
+            const ry = state.ry;
+            if (thrust > 0.06) {
+                const n = Math.min(8, 2 + Math.floor(thrust * 10) + Math.floor(thrustBump * 20));
+                for (let pi = 0; pi < n; pi++) {
+                    state.particles.push({
+                        x: rx - ROCKET_W * 0.4 + p.random(-6, 4),
+                        y: ry + p.random(-ROCKET_H * 0.4, ROCKET_H * 0.4),
+                        vx: p.random(-10, -4) - thrust * 12,
+                        vy: p.random(-3.5, 3.5),
+                        life: p.random(0.55, 1),
+                        sz: p.random(2, 5.5)
+                    });
+                }
+            }
+            for (let i = state.particles.length - 1; i >= 0; i--) {
+                const q = state.particles[i];
+                q.x += q.vx;
+                q.y += q.vy;
+                q.life -= 0.022 + thrust * 0.015;
+                if (q.life <= 0) state.particles.splice(i, 1);
+            }
+
+            for (let yy = 0; yy < p.height; yy++) {
+                const t = yy / p.height;
+                p.stroke(p.lerpColor(p.color(6, 4, 22), p.color(10, 14, 38), t));
+                p.line(0, yy, p.width, yy);
+            }
+
+            const tNeb = state.nebulaPhase;
+            p.noStroke();
+            p.fill(99, 102, 241, 35 + thrust * 40);
+            p.ellipse(
+                p.width * 0.72 + p.sin(tNeb * 0.7) * 40,
+                p.height * 0.35 + p.cos(tNeb * 0.5) * 30,
+                p.width * 0.55,
+                p.height * 0.45
+            );
+            p.fill(6, 182, 212, 22 + thrust * 35);
+            p.ellipse(
+                p.width * 0.18 + p.cos(tNeb * 0.6) * 25,
+                p.height * 0.62 + p.sin(tNeb * 0.45) * 20,
+                p.width * 0.42,
+                p.height * 0.38
+            );
+
+            for (let layer = 0; layer < 3; layer++) {
+                const sp = 0.04 + layer * 0.07;
+                const br = 180 + layer * 40;
+                p.stroke(br, br, 255, 35 - layer * 8);
+                for (let s = 0; s < 55; s++) {
+                    const sx = (s * 113 + state.scroll * sp * (12 + layer * 6)) % (p.width + 20) - 10;
+                    const sy = (s * 67 + layer * 41) % p.height;
+                    p.strokeWeight(layer === 0 ? 1.2 : 0.8);
+                    p.point(sx, sy);
+                }
+            }
+
+            const ahead = 150;
+            for (let sx = -60; sx < p.width + ahead; sx += 7) {
+                const worldX = state.scroll + sx;
+                const t0 = tunnelProfile(p, worldX, state.scroll);
+                p.noStroke();
+                p.fill(18, 12, 32, 140);
+                p.rect(sx, 0, 8, t0.top);
+                p.fill(12, 18, 36, 150);
+                p.rect(sx, t0.bottom, 8, p.height - t0.bottom);
+                p.stroke(34, 211, 238, 100);
+                p.strokeWeight(4);
+                p.line(sx, t0.top, sx + 7, t0.top);
+                p.stroke(167, 139, 250, 90);
+                p.strokeWeight(2);
+                p.line(sx, t0.bottom, sx + 7, t0.bottom);
+            }
+            p.stroke(45, 212, 191, 200);
+            p.strokeWeight(1.5);
             p.noFill();
-            for (let sx = -50; sx < p.width + ahead; sx += 8) {
+            for (let sx = -60; sx < p.width + ahead; sx += 7) {
                 const worldX = state.scroll + sx;
                 const t0 = tunnelProfile(p, worldX, state.scroll);
                 p.line(sx, 0, sx, t0.top);
                 p.line(sx, t0.bottom, sx, p.height);
             }
 
-            const plumeLen = 6 + thrust * 48;
-            const c0 = p.lerpColor(p.color(36, 99, 235), p.color(255, 170, 60), thrust);
             p.push();
-            p.translate(ROCKET_X(), state.ry);
-            p.noStroke();
-            p.fill(p.red(c0), p.green(c0), p.blue(c0), 90 + thrust * 165);
-            p.ellipse(-ROCKET_W * 0.55 - plumeLen * 0.5, 0, plumeLen, ROCKET_H * 0.35 + thrust * 22);
-            p.stroke(226, 232, 240);
-            p.strokeWeight(2);
-            p.fill(71, 85, 105);
-            p.beginShape();
-            p.vertex(ROCKET_W * 0.5, 0);
-            p.vertex(-ROCKET_W * 0.45, -ROCKET_H * 0.35);
-            p.vertex(-ROCKET_W * 0.45, ROCKET_H * 0.35);
-            p.endShape(p.CLOSE);
+            for (const q of state.particles) {
+                p.noStroke();
+                const a = q.life;
+                p.fill(125 + (1 - a) * 80, 220, 255, a * 220);
+                p.circle(q.x, q.y, q.sz * a);
+                p.fill(255, 200, 120, a * 120);
+                p.circle(q.x - 1, q.y, q.sz * 0.45 * a);
+            }
             p.pop();
 
-            p.fill(148, 163, 184);
+            const plumeLen = 10 + thrust * 58;
+            const cCore = p.lerpColor(p.color(59, 130, 246), p.color(251, 146, 60), thrust);
+            const cGlow = p.lerpColor(p.color(34, 211, 238), p.color(244, 114, 182), thrust * 0.7);
+
+            p.push();
+            p.translate(shake * 0.7, shake * 0.35);
+            p.translate(rx, ry);
+
+            p.noStroke();
+            p.fill(p.red(cGlow), p.green(cGlow), p.blue(cGlow), 40 + thrust * 100);
+            p.ellipse(-ROCKET_W * 0.2, 0, ROCKET_W * 3.2 + thrust * 40, ROCKET_H * 2.4 + thrust * 30);
+
+            for (let ring = 3; ring >= 1; ring--) {
+                p.fill(
+                    p.red(cCore),
+                    p.green(cCore),
+                    p.blue(cCore),
+                    (30 + thrust * 70) / ring
+                );
+                p.ellipse(
+                    -ROCKET_W * 0.55 - plumeLen * (0.35 + ring * 0.12),
+                    0,
+                    plumeLen * (1.1 - ring * 0.08),
+                    (ROCKET_H * 0.42 + thrust * 26) / ring
+                );
+            }
+
+            p.stroke(148, 163, 184, 220);
+            p.strokeWeight(2.5);
+            const bodyL = p.lerpColor(p.color(51, 65, 85), p.color(148, 163, 184), 0.45);
+            p.fill(p.red(bodyL), p.green(bodyL), p.blue(bodyL));
+            p.beginShape();
+            p.vertex(ROCKET_W * 0.52, 0);
+            p.vertex(-ROCKET_W * 0.48, -ROCKET_H * 0.36);
+            p.vertex(-ROCKET_W * 0.48, ROCKET_H * 0.36);
+            p.endShape(p.CLOSE);
+            p.stroke(226, 232, 240, 180);
+            p.strokeWeight(1);
+            p.noFill();
+            p.beginShape();
+            p.vertex(ROCKET_W * 0.25, -ROCKET_H * 0.12);
+            p.vertex(-ROCKET_W * 0.15, -ROCKET_H * 0.22);
+            p.vertex(-ROCKET_W * 0.15, ROCKET_H * 0.22);
+            p.endShape();
+
+            p.pop();
+
+            const hudPad = 12;
+            const hudW = p.min(p.width - 24, 280);
+            p.noStroke();
+            p.fill(15, 23, 42, 168);
+            p.rect(hudPad, hudPad, hudW, 56, 10);
+            p.stroke(34, 211, 238, 100);
+            p.strokeWeight(1);
+            p.noFill();
+            p.rect(hudPad + 0.5, hudPad + 0.5, hudW - 1, 55, 10);
+
+            p.fill(226, 232, 240);
             p.noStroke();
             p.textAlign(p.LEFT, p.TOP);
-            p.textSize(p.max(11, p.width * 0.032));
-            p.text(`航程 ${runtime.gameDistance.toFixed(0)} m · 推力 ${(thrust * 100).toFixed(0)}%`, 8, 8);
+            p.textSize(p.max(11, p.width * 0.03));
+            p.text(`航程 ${runtime.gameDistance.toFixed(0)} m`, hudPad + 14, hudPad + 12);
+            p.fill(148, 163, 184);
+            p.textSize(p.max(9, p.width * 0.024));
+            p.text(`推力 ${(thrust * 100).toFixed(0)}%`, hudPad + 14, hudPad + 32);
+
+            const barX = hudPad + 120;
+            const barW = hudW - 140;
+            const barY = hudPad + 22;
+            p.fill(30, 41, 59);
+            p.rect(barX, barY, barW, 8, 4);
+            const gBar = p.lerpColor(p.color(6, 182, 212), p.color(251, 113, 133), thrust);
+            p.fill(p.red(gBar), p.green(gBar), p.blue(gBar), 220);
+            p.rect(barX, barY, Math.max(4, barW * thrust), 8, 4);
+            p.fill(255, 255, 255, 60);
+            p.rect(barX, barY, barW * thrust, 3, 4);
+
             if (inWarmup) {
-                p.fill(251, 191, 36, 220);
-                p.textSize(p.max(10, p.width * 0.028));
-                p.textAlign(p.CENTER, p.TOP);
-                p.text(
-                    '教學區：航道寬、速度緩 — 用類比推力上下避開綠色邊界',
-                    p.width / 2,
-                    p.height - 52
-                );
+                p.noStroke();
+                p.fill(15, 23, 42, 200);
+                p.rect(p.width * 0.06, p.height - 62, p.width * 0.88, 48, 12);
+                p.stroke(251, 191, 36, 160);
+                p.strokeWeight(1.5);
+                p.noFill();
+                p.rect(p.width * 0.06 + 0.5, p.height - 61.5, p.width * 0.88 - 1, 47, 12);
+                p.fill(253, 224, 71);
+                p.noStroke();
+                p.textSize(p.max(10, p.width * 0.027));
+                p.textAlign(p.CENTER, p.CENTER);
+                p.text('教學航道 · 緩速寬敞 — 以類比推力上下閃避能量邊界', p.width / 2, p.height - 38);
                 p.textAlign(p.LEFT, p.TOP);
+            }
+
+            if (thrust > 0.55) {
+                p.stroke(255, 255, 255, 40 + thrust * 80);
+                p.strokeWeight(1);
+                for (let z = 0; z < 6; z++) {
+                    const zx = p.random(p.width * 0.35, p.width);
+                    const zy = p.random(0, p.height);
+                    p.line(zx, zy, zx - p.random(30, 90), zy + p.random(-20, 20));
+                }
             }
         };
 
@@ -732,11 +902,11 @@ function injectShellHtml() {
 
   <div data-ar-view="game" class="ar-view">
     <div class="ar-game-wrap">
-      <div class="ar-game-intro">
+      <div class="ar-game-intro ar-game-intro--escape">
         <h1>行星逃脫</h1>
         <p class="ar-sub">THE ESCAPE · 前段為寬航道教學區；之後難度逐步提高</p>
       </div>
-      <div class="ar-panel ar-game-panel">
+      <div class="ar-panel ar-game-panel ar-game-panel--stage">
         <div id="ar-game-canvas" class="ar-game-canvas-host"></div>
         <div class="ar-row ar-game-actions">
           <button type="button" class="ar-btn ar-btn--ghost" id="ar-exit-game">返回艦橋</button>

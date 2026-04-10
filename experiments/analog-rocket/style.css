@@ -249,19 +249,54 @@
 
 #ar-game-canvas {
     width: 100%;
-    min-height: 300px;
-    border-radius: 0.5rem;
+    min-height: 320px;
+    border-radius: 0.75rem;
     overflow: hidden;
-    background: #020617;
-    border: 1px solid rgba(51, 65, 85, 0.6);
+    background: radial-gradient(ellipse 120% 80% at 50% 20%, #1e1b4b 0%, #020617 45%, #020617 100%);
+    border: 1px solid rgba(34, 211, 238, 0.28);
+    box-shadow:
+        0 0 0 1px rgba(15, 23, 42, 0.9) inset,
+        0 4px 24px rgba(0, 0, 0, 0.5),
+        0 0 48px rgba(34, 211, 238, 0.12);
 }
 
 .ar-layout--desktop #ar-game-canvas {
-    min-height: 420px;
+    min-height: 460px;
 }
 
 .ar-layout--mobile #ar-game-canvas {
-    min-height: 280px;
+    min-height: 300px;
+}
+
+.ar-game-intro--escape .ar-sub {
+    color: #94a3b8;
+    line-height: 1.55;
+    max-width: 28rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.ar-game-panel--stage {
+    position: relative;
+}
+
+.ar-game-panel--stage::after {
+    content: '';
+    position: absolute;
+    inset: -1px;
+    border-radius: 0.75rem;
+    padding: 1px;
+    background: linear-gradient(135deg, rgba(34, 211, 238, 0.35), rgba(167, 139, 250, 0.25), rgba(244, 114, 182, 0.2));
+    -webkit-mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    mask:
+        linear-gradient(#fff 0 0) content-box,
+        linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.85;
 }
 
 .ar-big-actions {
