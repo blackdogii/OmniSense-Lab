@@ -19,7 +19,8 @@
 esp_timer_handle_t SensorEngine::s_timer = nullptr;
 
 static esp_adc_cal_characteristics_t s_adcCalChars;
-static constexpr uint32_t kAdcOversampleCount = 64;
+/** 過採樣在 esp_timer 回呼內執行：過高會占用 CPU、干擾 BLE 連線時序；校正仍由平均後之 raw 走 esp_adc_cal */
+static constexpr uint32_t kAdcOversampleCount = 8;
 /** 與前端 Ohm-Meter 分壓模型對齊之名義電源電壓（mV）；衰減 11 dB 量程約 0–3100 mV */
 static constexpr uint32_t kDividerVddNomMv = 3300;
 
