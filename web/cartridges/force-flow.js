@@ -28,11 +28,18 @@ const particles = [];
 let score = 0, combo = 0;
 let lastJudgment = "";
 let shakeIntensity = 0;
+let animationId = 0;
+/** @type {AudioContext | null} */
+let audioCtx = null;
+let ffResize = null;
+let ffOnData = null;
+let ffRoot = null;
 
 // --- 硬體配置 ---
 let selectedAdcId = 2; // 預設 GPIO 2
 
 export async function mount(root) {
+    ffRoot = root;
     // 1. 預載圖片
     await loadAllAssets();
 
@@ -65,6 +72,7 @@ export async function mount(root) {
         canvas.width = root.clientWidth;
         canvas.height = root.clientHeight;
     };
+    ffResize = resize;
     window.addEventListener('resize', resize);
     resize();
 
@@ -82,6 +90,7 @@ export async function mount(root) {
             }
         }
     };
+    ffOnData = onData;
     window.addEventListener('omnisense:data', onData);
     window.__ffDataHandler = onData;
 
@@ -307,4 +316,74 @@ class Particle {
     }
 }
 function createParticles(x, y, color) {
-    for (let i=0; i<20; i++) particles.push
+    for (let i = 0; i < 20; i++) {
+        particles.push(new Particle(x, y, color));
+    }
+}
+
+function getAudioContext() {
+    if (!audioCtx) {
+        const Ctx = window.AudioContext || window.webkitAudioContext;
+        if (Ctx) audioCtx = new Ctx();
+    }
+    return audioCtx;
+}
+
+function startAudio() {
+    try {
+        const ctx = getAudioContext();
+        ctx?.resume?.();
+    } catch {
+        /* 略 */
+    }
+}
+
+function playHitSound(freq) {
+    try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const o = ctx.createOscillator();
+        const g = ctx.createGain();
+        o.type = 'sine';
+        o.frequency.value = freq;
+        o.connect(g);
+        g.connect(ctx.destination);
+        const t = ctx.currentTime;
+        g.gain.setValueAtTime(0.12, t);
+        g.gain.exponentialRampToValueAtTime(0.01, t + 0.1);
+        o.start(t);
+        o.stop(t + 0.12);
+    } catch {
+        /* 略 */
+    }
+}
+
+export async function unmount() {
+    if (ffResize) {
+        window.removeEventListener('resize', ffResize);
+        ffResize = null;
+    }
+    if (ffOnData) {
+        window.removeEventListener('omnisense:data', ffOnData);
+        ffOnData = null;
+    }
+    try {
+        delete window.__ffDataHandler;
+    } catch {
+        window.__ffDataHandler = undefined;
+    }
+    cancelAnimationFrame(animationId);
+    animationId = 0;
+    try {
+        await audioCtx?.close();
+    } catch {
+        /* 略 */
+    }
+    audioCtx = null;
+    if (ffRoot) {
+        ffRoot.innerHTML = '';
+        ffRoot = null;
+    }
+    notes.length = 0;
+    particles.length = 0;
+}
