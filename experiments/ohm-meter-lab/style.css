@@ -12,9 +12,13 @@
     color: var(--ohm-text);
 }
 
+.hidden {
+    display: none !important;
+}
+
 .ohm-hero {
     text-align: center;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.5rem;
 }
 
 .ohm-title {
@@ -28,22 +32,59 @@
     color: transparent;
 }
 
-.ohm-sub {
-    font-size: 0.68rem;
-    color: var(--ohm-muted);
-    margin-top: 0.35rem;
-    line-height: 1.45;
+.ohm-wiring-row {
+    display: flex;
+    gap: 0.4rem;
+    margin-bottom: 0.45rem;
 }
 
-.ohm-range-note {
+.ohm-wiring-btn {
+    flex: 1;
+    padding: 0.5rem 0.35rem;
+    border-radius: 0.55rem;
+    border: 1px solid rgba(71, 85, 105, 0.85);
+    background: rgba(30, 41, 59, 0.55);
+    color: #cbd5e1;
+    font-size: 0.8rem;
+    font-weight: 800;
+    cursor: pointer;
+}
+
+.ohm-wiring-btn--on {
+    border-color: rgba(56, 189, 248, 0.65);
+    color: var(--ohm-cyan);
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.12);
+}
+
+.ohm-hint {
     font-size: 0.65rem;
     color: var(--ohm-muted);
-    margin-top: 0.45rem;
-    line-height: 1.5;
-    text-align: left;
-    max-width: 32rem;
-    margin-left: auto;
-    margin-right: auto;
+    margin: 0 0 0.5rem;
+    text-align: center;
+}
+
+.ohm-input-row--tight {
+    margin-bottom: 0.4rem;
+}
+
+.ohm-input-row--tight label {
+    min-width: 2rem;
+}
+
+.ohm-select {
+    flex: 1;
+    min-width: 5rem;
+    padding: 0.45rem 0.5rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(51, 65, 85, 0.9);
+    background: rgba(15, 23, 42, 0.95);
+    color: var(--ohm-text);
+    font-size: 0.8rem;
+    font-weight: 700;
+}
+
+.ohm-panel--compact {
+    padding: 0.65rem;
 }
 
 .ohm-tabs {
@@ -119,19 +160,21 @@
 }
 
 .ohm-readout-label {
-    font-size: 0.6rem;
-    letter-spacing: 0.2em;
+    font-size: 0.65rem;
+    letter-spacing: 0.12em;
     font-weight: 800;
     color: #a78bfa;
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
 }
 
 .ohm-readout-val {
-    font-size: 1.75rem;
+    font-size: clamp(2rem, 9.5vw, 3.15rem);
+    line-height: 1.15;
     font-weight: 900;
     font-variant-numeric: tabular-nums;
     font-family: ui-monospace, monospace;
     color: #e0f2fe;
+    letter-spacing: -0.02em;
 }
 
 .ohm-readout-raw {
@@ -140,11 +183,18 @@
     margin-top: 0.35rem;
 }
 
+.ohm-lab-lead {
+    font-size: 0.68rem;
+    color: var(--ohm-muted);
+    margin: 0 0 0.5rem;
+    line-height: 1.4;
+}
+
 .ohm-warn {
     margin-top: 0.5rem;
     padding: 0.45rem 0.55rem;
     border-radius: 0.5rem;
-    font-size: 0.72rem;
+    font-size: 0.68rem;
     font-weight: 700;
     text-align: center;
     background: rgba(127, 29, 29, 0.35);

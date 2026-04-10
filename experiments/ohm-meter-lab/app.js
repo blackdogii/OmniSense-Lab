@@ -1,40 +1,34 @@
 /**
- * Ohm-Meter-Lab — 電阻鑑定師：精準之路（Ohmic Master）
- * 分壓模型：V = Vcc·R_x/(R_x+R_pullup)；上行為 0–4095 比例讀值（名義對應 Vcc=3.3V）。
- * 舊韌體仍可直接使用；燒錄含 ADC 校正／過採樣之韌體可再提升讀值與電阻換算穩定度。
+ * Ohm-Meter-Lab — 電阻鑑定師（Ohmic Master）
+ * 分壓：V = Vcc·R_x/(R_x+R_pullup)；上行 0–4095 比例讀值。
  */
-
-import { omni } from '../../web/core/state.js';
+import { omni, PINS_CONFIG } from '../../web/core/state.js';
 import { applyDeviceConfig } from '../../web/core/configApply.js';
 import { computeTouchModeMask } from '../../web/core/touchMask.js';
 import * as ble from '../../web/core/ble.js';
 
-const CH_ADC = 2;
+/** G2：邏輯通道 2（內建 10kΩ 量測路徑） */
+const CH_BUILTIN = 2;
+/** 擴展模式可選邏輯通道（對應 G0、G1、G3、G4） */
+const EXT_CHANNELS = [0, 1, 3, 4];
+
 const ADC_MAX = 4095;
 const ADC_SAFE_LO = 500;
 const ADC_SAFE_HI = 3500;
-/** 與韌體 kDividerVddNomMv、分壓假設一致（mV） */
 const VCC_MV = 3300;
-const STORAGE_KEY = 'omnisense_ohm_meter_lab_v2';
+const STORAGE_KEY_V3 = 'omnisense_ohm_meter_lab_v3';
+const STORAGE_KEY_V2 = 'omnisense_ohm_meter_lab_v2';
 
-const PRESET_ACTIVE = 1 << CH_ADC;
-const PRESET_PULLUP = 1 << CH_ADC;
 const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 
-/**
- * 三種量程鈕：對應分壓公式裡的 R_pullup「標稱」（10k／100k／1M 常見外接上拉），
- * 方便在不同待測阻值範圍內讓 ADC 落在中段；與 G2「內建量測」硬體路徑並不衝突——
- * 若實際只使用內建弱上拉，仍以「低阻程」為預設，並用 The Lab 校準出 R_pullup′。
- */
-const RANGE_MODES = [
-    { id: '10k', label: '低阻程（R_pullup 標稱 10kΩ）', rPuNom: 10e3 },
-    { id: '100k', label: '中阻程（R_pullup 標稱 100kΩ）', rPuNom: 100e3 },
-    { id: '1M', label: '高阻程（R_pullup 標稱 1MΩ）', rPuNom: 1e6 }
+/** 擴展模式：公式 R_pullup 標稱（外接上拉） */
+const EXT_RANGE_MODES = [
+    { id: '10k', label: '10 kΩ', rPuNom: 10e3 },
+    { id: '100k', label: '100 kΩ', rPuNom: 100e3 },
+    { id: '1M', label: '1 MΩ', rPuNom: 1e6 }
 ];
 
-/** 比例讀值 ≤ 此值：視為可能已接入待測（分壓拉低）；可依接線微調 */
 const ADC_ATTACH_MAX = 3480;
-/** 比例讀值 ≥ 此值：視為開路／已取下待測；須高於 ATTACH 形成遲滯 */
 const ADC_REMOVE_MIN = 3680;
 const SETTLE_NEED = 14;
 const SETTLE_SPREAD_MAX = 10;
@@ -46,21 +40,20 @@ let dataHandler = null;
 let vizP5 = null;
 
 let lastAdc = 0;
-let rangeId = '10k';
 
-/** @type {'no_dut' | 'settling' | 'locked'} */
-let measurePhase = 'no_dut';
-let settleBuf = [];
-/** 鎖定後用以顯示的 ADC 平均與電阻 */
-let lockedAdc = null;
-let lockedRxVal = null;
+/** @type {'builtin' | 'extension'} */
+let wiringMode = 'builtin';
+/** 擴展模式腳位（邏輯通道 0|1|3|4） */
+let extLogicalCh = 0;
+let extRangeId = '10k';
 
 /** @type {Record<string, { rPuCal: number | null, samples: { r: number; adc: number }[] }>} */
-let labByRange = {
-    '10k': { rPuCal: null, samples: [] },
-    '100k': { rPuCal: null, samples: [] },
-    '1M': { rPuCal: null, samples: [] }
-};
+let labByKey = {};
+
+let measurePhase = 'no_dut';
+let settleBuf = [];
+let lockedAdc = null;
+let lockedRxVal = null;
 
 function injectCss() {
     if (styleLink) return;
@@ -81,25 +74,43 @@ function loadP5() {
     });
 }
 
+function labKey() {
+    if (wiringMode === 'builtin') return 'builtin';
+    return `ext:${extLogicalCh}:${extRangeId}`;
+}
+
+function getLab() {
+    const k = labKey();
+    if (!labByKey[k]) labByKey[k] = emptyLabEntry();
+    return labByKey[k];
+}
+
 function getRange() {
-    return RANGE_MODES.find((m) => m.id === rangeId) || RANGE_MODES[0];
+    if (wiringMode === 'builtin') {
+        return { id: 'builtin', label: '內建 10kΩ', rPuNom: 10e3 };
+    }
+    return EXT_RANGE_MODES.find((m) => m.id === extRangeId) || EXT_RANGE_MODES[0];
+}
+
+function currentLogicalCh() {
+    return wiringMode === 'builtin' ? CH_BUILTIN : extLogicalCh;
+}
+
+function logicalToGpio(logical) {
+    const row = PINS_CONFIG.find((p) => p.id === logical);
+    return row ? row.gpio : logical;
 }
 
 function rPuEffective() {
-    const L = labByRange[rangeId];
+    const L = getLab();
     const nom = getRange().rPuNom;
     return L.rPuCal != null && Number.isFinite(L.rPuCal) ? L.rPuCal : nom;
 }
 
-/** Map uplink code (0–4095) to equivalent pin voltage in mV (nominal full-scale = Vcc). */
 function adcToMv(adc) {
     return (adc / ADC_MAX) * VCC_MV;
 }
 
-/**
- * Divider: V = Vcc * R_x / (R_x + R_pullup) => R_x = R_pullup * V / (Vcc - V).
- * With V/Vcc = adc/ADC_MAX: R_x = R_pullup * adc / (ADC_MAX - adc).
- */
 function rxIdeal(adc, rPu) {
     if (adc <= 0 || adc >= ADC_MAX) return NaN;
     return (rPu * adc) / (ADC_MAX - adc);
@@ -109,7 +120,6 @@ function rxDisplay(adc) {
     return rxIdeal(adc, rPuEffective());
 }
 
-/** R_pullup = R_known * (Vcc - V) / V per calibration point */
 function rPullupFromKnownRAndAdc(rKnown, adc) {
     const v = adcToMv(adc);
     if (!Number.isFinite(rKnown) || rKnown <= 0) return NaN;
@@ -127,7 +137,6 @@ function estimateRPuFromSamples(samples, rPuNom) {
     return est.reduce((a, b) => a + b, 0) / est.length;
 }
 
-/** Theoretical monotonic curve (ADC code vs R): adc = ADC_MAX * R / (R + R_pullup) */
 function theoreticalAdcFromR(rOhms, rPu) {
     if (!Number.isFinite(rOhms) || !Number.isFinite(rPu) || rOhms <= 0 || rPu <= 0) return NaN;
     const x = (ADC_MAX * rOhms) / (rOhms + rPu);
@@ -159,53 +168,100 @@ function normalizeLabEntry(raw) {
     return e;
 }
 
-function loadStorage() {
-    try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (!raw) {
-            tryMigrateFromV1();
-            return;
+function ensureDefaultLabKeys() {
+    if (!labByKey.builtin) labByKey.builtin = emptyLabEntry();
+    for (const ch of EXT_CHANNELS) {
+        for (const m of EXT_RANGE_MODES) {
+            const k = `ext:${ch}:${m.id}`;
+            if (!labByKey[k]) labByKey[k] = emptyLabEntry();
         }
-        const o = JSON.parse(raw);
-        if (o.labByRange && typeof o.labByRange === 'object') {
-            for (const id of Object.keys(labByRange)) {
-                if (o.labByRange[id]) labByRange[id] = normalizeLabEntry(o.labByRange[id]);
-            }
-        }
-        if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
-    } catch {
-        /* ignore */
     }
 }
 
-/** Legacy key v1: drop quadratic poly, keep samples / rPuCal */
+function migrateFromV2(raw) {
+    try {
+        const o = JSON.parse(raw);
+        wiringMode = 'builtin';
+        extLogicalCh = 0;
+        extRangeId = EXT_RANGE_MODES.some((m) => m.id === o.rangeId) ? o.rangeId : '10k';
+        const legacy = o.labByRange || {};
+        labByKey = {
+            builtin: normalizeLabEntry(legacy['10k'])
+        };
+        for (const rid of ['10k', '100k', '1M']) {
+            labByKey[`ext:0:${rid}`] = normalizeLabEntry(legacy[rid]);
+        }
+        ensureDefaultLabKeys();
+    } catch {
+        labByKey = { builtin: emptyLabEntry() };
+        ensureDefaultLabKeys();
+    }
+}
+
 function tryMigrateFromV1() {
     try {
         const raw = localStorage.getItem('omnisense_ohm_meter_lab_v1');
         if (!raw) return;
         const o = JSON.parse(raw);
-        if (o.labByRange && typeof o.labByRange === 'object') {
-            for (const id of Object.keys(labByRange)) {
-                if (!o.labByRange[id]) continue;
-                const row = o.labByRange[id];
-                labByRange[id] = normalizeLabEntry({
-                    rPuCal: row.rPuCal,
-                    samples: row.samples
-                });
-            }
+        const legacy = o.labByRange || {};
+        labByKey = {
+            builtin: normalizeLabEntry(legacy['10k'])
+        };
+        for (const rid of ['10k', '100k', '1M']) {
+            labByKey[`ext:0:${rid}`] = normalizeLabEntry(legacy[rid]);
         }
-        if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
+        extRangeId =
+            o.rangeId && EXT_RANGE_MODES.some((m) => m.id === o.rangeId) ? o.rangeId : '10k';
+        wiringMode = 'builtin';
+        extLogicalCh = 0;
+        ensureDefaultLabKeys();
         saveStorage();
     } catch {
         /* ignore */
     }
 }
 
+function loadStorage() {
+    try {
+        const v3 = localStorage.getItem(STORAGE_KEY_V3);
+        if (v3) {
+            const o = JSON.parse(v3);
+            labByKey = typeof o.labByKey === 'object' && o.labByKey ? { ...o.labByKey } : {};
+            wiringMode = o.wiringMode === 'extension' ? 'extension' : 'builtin';
+            extLogicalCh = EXT_CHANNELS.includes(Number(o.extLogicalCh)) ? Number(o.extLogicalCh) : 0;
+            extRangeId = EXT_RANGE_MODES.some((m) => m.id === o.extRangeId) ? o.extRangeId : '10k';
+            ensureDefaultLabKeys();
+            return;
+        }
+        const v2 = localStorage.getItem(STORAGE_KEY_V2);
+        if (v2) {
+            migrateFromV2(v2);
+            saveStorage();
+            return;
+        }
+        tryMigrateFromV1();
+        if (!Object.keys(labByKey).length) {
+            labByKey = { builtin: emptyLabEntry() };
+            ensureDefaultLabKeys();
+        }
+    } catch {
+        labByKey = { builtin: emptyLabEntry() };
+        ensureDefaultLabKeys();
+    }
+}
+
 function saveStorage() {
     try {
+        ensureDefaultLabKeys();
         localStorage.setItem(
-            STORAGE_KEY,
-            JSON.stringify({ version: 2, rangeId, labByRange })
+            STORAGE_KEY_V3,
+            JSON.stringify({
+                version: 3,
+                wiringMode,
+                extLogicalCh,
+                extRangeId,
+                labByKey
+            })
         );
     } catch {
         /* ignore */
@@ -213,9 +269,10 @@ function saveStorage() {
 }
 
 function exportJson() {
-    const blob = new Blob([JSON.stringify({ version: 2, rangeId, labByRange }, null, 2)], {
-        type: 'application/json'
-    });
+    const blob = new Blob(
+        [JSON.stringify({ version: 3, wiringMode, extLogicalCh, extRangeId, labByKey }, null, 2)],
+        { type: 'application/json' }
+    );
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = 'ohm-meter-lab-calibration.json';
@@ -230,10 +287,6 @@ function resetMeasurePipeline() {
     lockedRxVal = null;
 }
 
-/**
- * 未接待測時腳位常接近滿刻度（浮動／開路）；接入後讀值會顯著下降。
- * 穩定後鎖定 R_x，直到讀值再度升至 REMOVE 閾值（取下電阻）。
- */
 function stepMeasurePipeline(adc) {
     if (measurePhase === 'no_dut') {
         if (adc <= ADC_ATTACH_MAX) {
@@ -261,7 +314,6 @@ function stepMeasurePipeline(adc) {
         measurePhase = 'locked';
         return;
     }
-    // locked：維持 lockedRxVal，直至 REMOVE 於上方處理
 }
 
 function updateMeasureUi() {
@@ -276,18 +328,18 @@ function updateMeasureUi() {
         if (measurePhase === 'no_dut') elR.textContent = '—';
         else if (measurePhase === 'settling') {
             const n = settleBuf.length;
-            elR.textContent = n >= 4 ? `${formatOhm(rxDisplay(settleBuf.reduce((a, b) => a + b, 0) / n))}（平均中）` : '…（感測中）';
+            elR.textContent = n >= 4 ? `${formatOhm(rxDisplay(settleBuf.reduce((a, b) => a + b, 0) / n))}（平均中）` : '…';
         } else elR.textContent = formatOhm(lockedRxVal);
     }
 
     if (elRaw) {
         if (measurePhase === 'no_dut') {
-            elRaw.textContent = `即時：比例讀值 ${adcLive.toFixed(0)} · 換算電壓 ≈ ${vMvLive.toFixed(1)} mV · R_pullup′ = ${formatOhm(rPu)}`;
+            elRaw.textContent = `ADC ${adcLive.toFixed(0)} · ${vMvLive.toFixed(0)} mV · R′${formatOhm(rPu)}`;
         } else if (measurePhase === 'settling') {
-            elRaw.textContent = `即時：比例讀值 ${adcLive.toFixed(0)} · 樣本 ${settleBuf.length}/${SETTLE_NEED}（變動需 ≤ ${SETTLE_SPREAD_MAX}）`;
+            elRaw.textContent = `${adcLive.toFixed(0)} · ${settleBuf.length}/${SETTLE_NEED}`;
         } else {
             const v = adcToMv(lockedAdc ?? 0);
-            elRaw.textContent = `鎖定：比例讀值 ${(lockedAdc ?? 0).toFixed(0)}（平均） · ≈ ${v.toFixed(1)} mV · R_pullup′ = ${formatOhm(rPu)}`;
+            elRaw.textContent = `鎖定 ADC ${(lockedAdc ?? 0).toFixed(0)} · ${v.toFixed(0)} mV`;
         }
     }
 
@@ -295,34 +347,33 @@ function updateMeasureUi() {
     elWarn.classList.remove('ohm-warn--ok', 'hidden');
 
     if (measurePhase === 'no_dut') {
-        elWarn.textContent =
-            '尚未偵測到待測電阻：讀值仍偏高（開路或近滿刻度）。請接好待測件到量測腳與 GND。';
+        elWarn.textContent = '接上待測電阻到量測腳與 GND。';
         elWarn.classList.remove('ohm-warn--ok');
         return;
     }
 
     const adcHint = measurePhase === 'locked' ? lockedAdc ?? adcLive : adcLive;
     if (!Number.isFinite(adcHint)) {
-        elWarn.textContent = '量測中…';
+        elWarn.textContent = '…';
         return;
     }
 
     if (measurePhase === 'settling') {
-        elWarn.textContent = '已感測到元件：蒐集樣本並平均中，請保持接線穩定。';
+        elWarn.textContent = '穩定中…';
         elWarn.classList.add('ohm-warn--ok');
         return;
     }
 
     if (adcHint < ADC_SAFE_LO) {
         const x = boundaryRAt(ADC_SAFE_LO, rPu);
-        elWarn.textContent = `量程提示：讀值 < ${ADC_SAFE_LO} → 電阻 < ${formatOhm(x)}（易飽和，請換高阻程或檢查接線）`;
+        elWarn.textContent = `讀值偏低 → R < ${formatOhm(x)}（可改擴展／上拉）`;
         elWarn.classList.remove('ohm-warn--ok');
     } else if (adcHint > ADC_SAFE_HI) {
         const x = boundaryRAt(ADC_SAFE_HI, rPu);
-        elWarn.textContent = `量程提示：讀值 > ${ADC_SAFE_HI} → 電阻 > ${formatOhm(x)}（易飽和，請換低阻程）`;
+        elWarn.textContent = `讀值偏高 → R > ${formatOhm(x)}（可改擴展／上拉）`;
         elWarn.classList.remove('ohm-warn--ok');
     } else {
-        elWarn.textContent = '已鎖定讀值；讀值在建議窗內（500–3500）。取下電阻後將重新量測。';
+        elWarn.textContent = '已鎖定。取下元件後重新量測。';
         elWarn.classList.add('ohm-warn--ok');
     }
 }
@@ -330,7 +381,7 @@ function updateMeasureUi() {
 function renderLabTable() {
     const tb = rootEl?.querySelector('#ohm-samples-body');
     if (!tb) return;
-    const samples = labByRange[rangeId].samples;
+    const samples = getLab().samples;
     tb.innerHTML = samples
         .map(
             (row, i) =>
@@ -340,27 +391,26 @@ function renderLabTable() {
 }
 
 function updateLabOut() {
-    const L = labByRange[rangeId];
+    const L = getLab();
     const out = rootEl?.querySelector('#ohm-lab-out');
     if (!out) return;
-    const lines = [];
     const nom = getRange().rPuNom;
-    lines.push(`分壓模型：V = ${VCC_MV} mV × R_x / (R_x + R_pullup)；採樣點反推 R_pullup = R_已知 × (Vcc − V) / V。`);
+    const lines = [];
     if (L.samples.length) {
         const est = estimateRPuFromSamples(L.samples, nom);
-        lines.push(`由目前採樣點估算之平均 R_pullup ≈ ${formatOhm(est)}（標稱量程 ${formatOhm(nom)}）。`);
+        lines.push(`估 R_pullup ≈ ${formatOhm(est)}（標稱 ${formatOhm(nom)}）`);
     }
     if (L.rPuCal != null && Number.isFinite(L.rPuCal)) {
-        lines.push(`已套用儲存之 R_pullup′ = ${formatOhm(L.rPuCal)}。`);
+        lines.push(`已套用 R_pullup′ = ${formatOhm(L.rPuCal)}`);
     } else {
-        lines.push('尚未套用校準：測量使用標稱量程電阻；完成採樣後按「套用分壓校準」。');
+        lines.push('未套用校準：使用標稱上拉。');
     }
     out.textContent = lines.join('\n');
 }
 
 function onData(ev) {
     if (omni.currentViewId !== 'ohm-meter-lab') return;
-    const ch = ev.detail.channels[CH_ADC];
+    const ch = ev.detail.channels[currentLogicalCh()];
     if (!ch) return;
     lastAdc = ch.filtered;
     stepMeasurePipeline(lastAdc);
@@ -377,7 +427,7 @@ function mountP5(host) {
         };
         p.draw = () => {
             p.background(12, 18, 34);
-            const samples = labByRange[rangeId].samples;
+            const samples = getLab().samples;
             const rPuPlot = rPuEffective();
             const pad = 36;
             const w = p.width - pad * 2;
@@ -386,7 +436,7 @@ function mountP5(host) {
                 p.fill(100, 116, 139);
                 p.textAlign(p.CENTER, p.CENTER);
                 p.textSize(12);
-                p.text('於「The Lab」記錄採樣點後顯示 R–ADC 圖', p.width / 2, p.height / 2);
+                p.text('The Lab 記錄採樣後顯示', p.width / 2, p.height / 2);
                 return;
             }
             const rs = samples.map((s) => s.r);
@@ -417,11 +467,11 @@ function mountP5(host) {
             p.fill(148, 163, 184);
             p.noStroke();
             p.textSize(9);
-            p.text('R_x (Ω)', pad + w / 2, p.height - 8);
+            p.text('R_x', pad + w / 2, p.height - 8);
             p.push();
             p.translate(12, pad + h / 2);
             p.rotate(-p.HALF_PI);
-            p.text('換算讀值 0–4095', 0, 0);
+            p.text('ADC', 0, 0);
             p.pop();
 
             p.stroke(56, 189, 248, 120);
@@ -451,15 +501,62 @@ function mountP5(host) {
     }, host);
 }
 
+function refreshWiringUi() {
+    const extPanel = rootEl?.querySelector('#ohm-ext-controls');
+    const hint = rootEl?.querySelector('#ohm-builtin-hint');
+    if (extPanel) extPanel.classList.toggle('hidden', wiringMode !== 'extension');
+    if (hint) hint.classList.toggle('hidden', wiringMode !== 'builtin');
+
+    rootEl?.querySelectorAll('[data-wiring]').forEach((b) => {
+        const on = b.getAttribute('data-wiring') === wiringMode;
+        b.classList.toggle('ohm-wiring-btn--on', on);
+    });
+
+    rootEl?.querySelectorAll('[data-ext-range]').forEach((b) => {
+        b.classList.toggle('ohm-mode-btn--on', b.getAttribute('data-ext-range') === extRangeId);
+    });
+
+    const sel = rootEl?.querySelector('#ohm-ext-pin');
+    if (sel && sel.value !== String(extLogicalCh)) sel.value = String(extLogicalCh);
+}
+
 function wireUi() {
-    RANGE_MODES.forEach((m) => {
-        rootEl?.querySelector(`[data-range="${m.id}"]`)?.addEventListener('click', () => {
-            rangeId = m.id;
+    rootEl?.querySelectorAll('[data-wiring]').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+            const w = btn.getAttribute('data-wiring');
+            if (w !== 'builtin' && w !== 'extension') return;
+            wiringMode = w;
             resetMeasurePipeline();
-            rootEl?.querySelectorAll('.ohm-mode-btn').forEach((b) => {
-                b.classList.toggle('ohm-mode-btn--on', b.getAttribute('data-range') === rangeId);
-            });
             saveStorage();
+            refreshWiringUi();
+            await applyPreset();
+            updateMeasureUi();
+            renderLabTable();
+            updateLabOut();
+            vizP5?.redraw();
+        });
+    });
+
+    rootEl?.querySelector('#ohm-ext-pin')?.addEventListener('change', async (e) => {
+        const v = parseInt(e.target.value, 10);
+        if (!EXT_CHANNELS.includes(v)) return;
+        extLogicalCh = v;
+        resetMeasurePipeline();
+        saveStorage();
+        await applyPreset();
+        updateMeasureUi();
+        renderLabTable();
+        updateLabOut();
+        vizP5?.redraw();
+    });
+
+    EXT_RANGE_MODES.forEach((m) => {
+        rootEl?.querySelector(`[data-ext-range="${m.id}"]`)?.addEventListener('click', async () => {
+            extRangeId = m.id;
+            resetMeasurePipeline();
+            saveStorage();
+            refreshWiringUi();
+            await applyPreset();
             updateMeasureUi();
             renderLabTable();
             updateLabOut();
@@ -487,7 +584,7 @@ function wireUi() {
             window.alert('請輸入有效的已知電阻值（Ω）。');
             return;
         }
-        labByRange[rangeId].samples.push({ r: v, adc: lastAdc });
+        getLab().samples.push({ r: v, adc: lastAdc });
         saveStorage();
         renderLabTable();
         updateLabOut();
@@ -495,8 +592,9 @@ function wireUi() {
     });
 
     rootEl?.querySelector('#ohm-clear-samples')?.addEventListener('click', () => {
-        labByRange[rangeId].samples = [];
-        labByRange[rangeId].rPuCal = null;
+        const L = getLab();
+        L.samples = [];
+        L.rPuCal = null;
         saveStorage();
         renderLabTable();
         updateLabOut();
@@ -504,15 +602,15 @@ function wireUi() {
     });
 
     rootEl?.querySelector('#ohm-fit')?.addEventListener('click', () => {
-        const L = labByRange[rangeId];
+        const L = getLab();
         const pts = L.samples;
         if (pts.length < 1) {
-            window.alert('請至少記錄 1 個採樣點（建議 3 個以上以平均 R_pullup）。');
+            window.alert('請至少記錄 1 個採樣點。');
             return;
         }
         const meanPu = estimateRPuFromSamples(pts, getRange().rPuNom);
         if (!Number.isFinite(meanPu) || meanPu <= 0) {
-            window.alert('無法由採樣點計算 R_pullup（檢查電壓是否過近 0 或滿刻度）。');
+            window.alert('無法計算 R_pullup。');
             return;
         }
         L.rPuCal = meanPu;
@@ -520,9 +618,7 @@ function wireUi() {
         updateLabOut();
         updateMeasureUi();
         vizP5?.redraw();
-        if (pts.length < 3) {
-            window.alert('已套用平均 R_pullup；採樣點較少時誤差較大，建議再記錄幾點後重算。');
-        }
+        if (pts.length < 3) window.alert('採樣點較少時誤差大，建議多記錄幾點。');
     });
 
     rootEl?.querySelector('#ohm-export')?.addEventListener('click', exportJson);
@@ -534,24 +630,21 @@ function wireUi() {
         r.onload = () => {
             try {
                 const o = JSON.parse(String(r.result));
-                if (o.labByRange) {
-                    labByRange = {
-                        '10k': emptyLabEntry(),
-                        '100k': emptyLabEntry(),
-                        '1M': emptyLabEntry()
-                    };
-                    for (const id of Object.keys(labByRange)) {
-                        if (o.labByRange[id]) {
-                            labByRange[id] = normalizeLabEntry(o.labByRange[id]);
-                        }
-                    }
+                if (o.version === 3 && o.labByKey) {
+                    labByKey = { ...o.labByKey };
+                    wiringMode = o.wiringMode === 'extension' ? 'extension' : 'builtin';
+                    extLogicalCh = EXT_CHANNELS.includes(Number(o.extLogicalCh)) ? Number(o.extLogicalCh) : 0;
+                    extRangeId = EXT_RANGE_MODES.some((m) => m.id === o.extRangeId) ? o.extRangeId : '10k';
+                } else if (o.labByRange) {
+                    migrateFromV2(JSON.stringify(o));
+                } else {
+                    throw new Error('格式不符');
                 }
-                if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
+                ensureDefaultLabKeys();
                 saveStorage();
                 resetMeasurePipeline();
-                rootEl?.querySelectorAll('.ohm-mode-btn').forEach((b) => {
-                    b.classList.toggle('ohm-mode-btn--on', b.getAttribute('data-range') === rangeId);
-                });
+                refreshWiringUi();
+                void applyPreset();
                 renderLabTable();
                 updateLabOut();
                 updateMeasureUi();
@@ -568,9 +661,11 @@ function wireUi() {
 
 async function applyPreset() {
     if (!ble.getRxChar()) return;
+    const ch = currentLogicalCh();
+    const mask = (1 << ch) & 0x01ff;
     omni.channelMode = [...PRESET_MODES];
-    omni.activeMask = PRESET_ACTIVE & 0x01ff;
-    omni.pullupMask = PRESET_PULLUP & 0x01ff;
+    omni.activeMask = mask;
+    omni.pullupMask = wiringMode === 'builtin' ? mask : 0;
     await applyDeviceConfig({
         freq: omni.lastFreq,
         res: omni.lastRes,
@@ -579,56 +674,76 @@ async function applyPreset() {
         touchMask: computeTouchModeMask()
     });
     const si = document.getElementById('syncIndicator');
-    if (si) si.innerText = '⚡ Ohm-Meter：G2 ADC + 上拉';
+    const g = logicalToGpio(ch);
+    const tag = wiringMode === 'builtin' ? '內建' : '擴展';
+    if (si) si.innerText = `⚡ Ohm G${g}（${tag}）`;
+}
+
+function extPinOptionsHtml() {
+    return EXT_CHANNELS.map((lc) => {
+        const g = logicalToGpio(lc);
+        return `<option value="${lc}">G${g}</option>`;
+    }).join('');
+}
+
+function extRangeBtnsHtml() {
+    return EXT_RANGE_MODES.map(
+        (m) =>
+            `<button type="button" class="ohm-mode-btn ${m.id === extRangeId ? 'ohm-mode-btn--on' : ''}" data-ext-range="${m.id}">${m.label}</button>`
+    ).join('');
 }
 
 function buildDom(root) {
-    const modeBtns = RANGE_MODES.map(
-        (m) =>
-            `<button type="button" class="ohm-mode-btn ${m.id === rangeId ? 'ohm-mode-btn--on' : ''}" data-range="${m.id}">${m.label}</button>`
-    ).join('');
     root.innerHTML = `
 <div class="ohm-root">
   <div class="ohm-hero">
     <div class="ohm-title">Ohmic Master</div>
-    <p class="ohm-sub">物理模型：V = ${VCC_MV} mV × R_x ÷ (R_x + R_pullup)；裝置回報 0–4095 比例讀值。</p>
-    <p class="ohm-range-note">G2「內建電阻量測」提供固定量測腳位與上拉路徑；下方 10k／100k／1M 三檔是<strong>公式裡 R_pullup 的標稱</strong>（對應常見外接分壓上拉），方便依待測阻值切換量程。僅用內建路徑時請先選「低阻程」，並在 The Lab 校準 R_pullup′。</p>
   </div>
   <div class="ohm-tabs">
     <button type="button" class="ohm-tab ohm-tab--active" data-tab="m">測量</button>
-    <button type="button" class="ohm-tab" data-tab="lab">The Lab（校準）</button>
+    <button type="button" class="ohm-tab" data-tab="lab">The Lab</button>
   </div>
-  <div class="ohm-panel ohm-panel--visible" data-panel="m">
-    <div class="ohm-mode-row">${modeBtns}</div>
+  <div class="ohm-panel ohm-panel--visible ohm-panel--compact" data-panel="m">
+    <div class="ohm-wiring-row">
+      <button type="button" class="ohm-wiring-btn ohm-wiring-btn--on" data-wiring="builtin">內建</button>
+      <button type="button" class="ohm-wiring-btn" data-wiring="extension">擴展</button>
+    </div>
+    <p id="ohm-builtin-hint" class="ohm-hint">G2 · 10kΩ</p>
+    <div id="ohm-ext-controls" class="hidden">
+      <div class="ohm-input-row ohm-input-row--tight">
+        <label for="ohm-ext-pin">腳位</label>
+        <select id="ohm-ext-pin" class="ohm-select">${extPinOptionsHtml()}</select>
+      </div>
+      <div class="ohm-mode-row" id="ohm-ext-ranges">${extRangeBtnsHtml()}</div>
+    </div>
     <div class="ohm-readout">
-      <div class="ohm-readout-label">鑑定讀數 R_x（分壓公式 · R_pullup′）</div>
+      <div class="ohm-readout-label">R<sub>x</sub></div>
       <div class="ohm-readout-val" id="ohm-rx-val">—</div>
       <div class="ohm-readout-raw" id="ohm-adc-raw"></div>
     </div>
-    <div class="ohm-warn ohm-warn--ok" id="ohm-warn">連線後：偵測待測件 → 平均 → 鎖定電阻讀值（取下後重新量測）。</div>
-    <p class="ohm-formula">量程安全：比例讀值 &lt;${ADC_SAFE_LO} 或 &gt;${ADC_SAFE_HI} 時顯示邊界電阻提示。The Lab 以多點平均反推並儲存 R_pullup（取代拋物線擬合）。</p>
+    <div class="ohm-warn ohm-warn--ok" id="ohm-warn">連線後量測。</div>
   </div>
   <div class="ohm-panel" data-panel="lab">
-    <p>多點採樣：接好已知電阻與量程上拉，待讀值穩定後輸入 R_已知，按「記錄」。再按「套用分壓校準」將各點反推之 R_pullup 取平均並儲存（G2 內建上拉預設對應低阻程約 10kΩ，可由校準更新）。</p>
+    <p class="ohm-lab-lead">已知 R、讀值穩定後「記錄」，再「套用校準」。</p>
     <div class="ohm-lab-grid">
       <div class="ohm-input-row">
-        <label for="ohm-known-r">已知 R (Ω)</label>
+        <label for="ohm-known-r">R (Ω)</label>
         <input type="number" id="ohm-known-r" min="1" step="any" placeholder="1000">
         <button type="button" class="ohm-btn" id="ohm-record">記錄</button>
       </div>
       <table class="ohm-table">
-        <thead><tr><th>#</th><th>R 已知 (Ω)</th><th>V 換算 (mV)</th><th>比例讀值</th></tr></thead>
+        <thead><tr><th>#</th><th>R</th><th>mV</th><th>ADC</th></tr></thead>
         <tbody id="ohm-samples-body"></tbody>
       </table>
       <div class="ohm-input-row">
-        <button type="button" class="ohm-btn" id="ohm-fit">套用分壓校準（平均 R_pullup）</button>
-        <button type="button" class="ohm-btn" id="ohm-clear-samples">清除本量程採樣</button>
+        <button type="button" class="ohm-btn" id="ohm-fit">套用校準</button>
+        <button type="button" class="ohm-btn" id="ohm-clear-samples">清除</button>
       </div>
       <pre class="ohm-lab-out" id="ohm-lab-out"></pre>
       <div class="ohm-input-row">
-        <button type="button" class="ohm-btn" id="ohm-export">匯出校準 JSON</button>
+        <button type="button" class="ohm-btn" id="ohm-export">匯出 JSON</button>
         <label class="ohm-btn" style="cursor:pointer;display:inline-block;">
-          匯入 JSON
+          匯入
           <input type="file" id="ohm-import" accept="application/json,.json" style="display:none">
         </label>
       </div>
@@ -636,10 +751,6 @@ function buildDom(root) {
     <div class="ohm-canvas-host" id="ohm-canvas-host"></div>
   </div>
 </div>`;
-    const host = root.querySelector('#ohm-canvas-host');
-    const labImport = root.querySelector('#ohm-import');
-    const labSpan = root.querySelector('.ohm-file span');
-    labSpan?.addEventListener('click', () => labImport?.click());
 }
 
 export async function init(root) {
@@ -649,6 +760,7 @@ export async function init(root) {
     omni.currentViewId = 'ohm-meter-lab';
     loadStorage();
     buildDom(root);
+    refreshWiringUi();
     resetMeasurePipeline();
     mountP5(root.querySelector('#ohm-canvas-host'));
     wireUi();
