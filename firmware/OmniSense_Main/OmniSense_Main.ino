@@ -71,7 +71,8 @@ void setup() {
     Serial.begin(115200);
     Serial.printf("OmniSense Lab %s (0x%04X, FW=%u WEB=%u)\n", OMNISENSE_FW_VERSION,
                   (unsigned)OMNISENSE_VERSION_CODE, (unsigned)OMNISENSE_VER_FW, (unsigned)OMNISENSE_VER_WEB);
-    // 先完成 BLE 協定堆疊與廣播，再啟動採樣計時器，避免 esp_timer 內大量 ADC 占用與連線競態
+    SensorEngine::init();
+
     BLEDevice::init(BLE_DEVICE_NAME);
     BLEServer *pServer = BLEDevice::createServer();
     pServer->setCallbacks(new MyServerCallbacks());
@@ -95,8 +96,6 @@ void setup() {
 
     pService->start();
     configureAdvertising(pServer);
-
-    SensorEngine::init();
 }
 
 void loop() {
