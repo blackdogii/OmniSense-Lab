@@ -1,6 +1,6 @@
 /*
  * OmniSense Lab — BitPacker 實作
- * 目前釋出：0.2.2 · 版本規則：docs/VERSIONING.md
+ * 目前釋出：0.4.3 · 版本規則：docs/VERSIONING.md
  * 作者：小威老師 · 授權：見倉庫 LICENSE
  */
 #include "BitPacker.h"

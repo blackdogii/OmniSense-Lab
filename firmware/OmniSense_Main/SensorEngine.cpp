@@ -1,6 +1,6 @@
 /*
  * OmniSense Lab — SensorEngine（CPU 週期計數與快速 ADC 整合版）
- * 目前釋出：0.3.3 · 版本規則：docs/VERSIONING.md
+ * 目前釋出：0.4.3 · 版本規則：docs/VERSIONING.md
  * 作者：小威老師 · 授權：見倉庫 LICENSE
  *
  * 類比通道：單次 analogRead（與「更新電阻鑑定師」之前行為一致）。
