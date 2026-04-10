@@ -41,7 +41,7 @@ let rootEl = null;
 let omniP5 = null;
 let styleTag = null;
 
-let waveAutoScale = true;
+let waveAutoScale = false;
 let waveAutoLo = 0;
 let waveAutoHi = 4095;
 let showRawOverlay = false;
