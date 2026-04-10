@@ -27,6 +27,9 @@ let rootEl = null;
 let styleLink = null;
 let dataListener = null;
 let gameP5 = null;
+/** @type {ResizeObserver | null} */
+let gameHostResizeObs = null;
+let arLayoutHandler = null;
 
 /** @type {'hub' | 'settings' | 'wizard' | 'game'} */
 let activeView = 'hub';
@@ -229,10 +232,26 @@ function stopEngineAudioHard() {
 }
 
 function destroyGameP5() {
+    if (gameHostResizeObs) {
+        try {
+            gameHostResizeObs.disconnect();
+        } catch {
+            /* ignore */
+        }
+        gameHostResizeObs = null;
+    }
     if (gameP5) {
         gameP5.remove();
         gameP5 = null;
     }
+}
+
+function applyArLayout() {
+    const el = rootEl?.querySelector('.ar-root');
+    if (!el) return;
+    const desktop = window.matchMedia('(min-width: 768px)').matches;
+    el.classList.toggle('ar-layout--desktop', desktop);
+    el.classList.toggle('ar-layout--mobile', !desktop);
 }
 
 /**
@@ -248,6 +267,14 @@ function tunnelProfile(p, worldX) {
     return { mid, gap, top: mid - gap / 2, bottom: mid + gap / 2 };
 }
 
+/** Canvas size: phone taller play area; desktop wider / taller */
+function gameCanvasDims(host) {
+    const w = Math.max(300, host.clientWidth || 360);
+    const desktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+    const h = desktop ? 440 : 340;
+    return { w, h, desktop };
+}
+
 function mountGameSketch(host) {
     const P = window.p5;
     const state = {
@@ -255,7 +282,9 @@ function mountGameSketch(host) {
         ry: 0,
         vy: 0,
         dead: false,
-        startedAudio: false
+        startedAudio: false,
+        /** Skip wall collision until aligned + brief grace (fixes instant "船體撞擊" on start) */
+        collisionOkAfterMs: 0
     };
 
     gameP5 = new P((p) => {
@@ -265,13 +294,33 @@ function mountGameSketch(host) {
         const GRAV = 0.082;
         const THRUST_PWR = 0.145;
 
+        function alignRocketToTunnel() {
+            const wx = state.scroll + ROCKET_X();
+            const tun = tunnelProfile(p, wx);
+            state.ry = p.constrain(tun.mid, ROCKET_H / 2 + 4, p.height - ROCKET_H / 2 - 4);
+        }
+
         p.setup = () => {
-            p.createCanvas(Math.max(300, host.clientWidth || 360), 240).parent(host);
-            state.ry = p.height * 0.5;
+            const { w, h } = gameCanvasDims(host);
+            p.createCanvas(w, h).parent(host);
             state.vy = 0;
             state.scroll = 0;
             state.dead = false;
+            alignRocketToTunnel();
+            state.collisionOkAfterMs = performance.now() + 850;
             p.frameRate(55);
+            if (typeof ResizeObserver !== 'undefined') {
+                gameHostResizeObs = new ResizeObserver(() => {
+                    requestAnimationFrame(() => {
+                        if (state.dead || activeView !== 'game') return;
+                        const dim = gameCanvasDims(host);
+                        p.resizeCanvas(dim.w, dim.h);
+                        alignRocketToTunnel();
+                        state.collisionOkAfterMs = performance.now() + 400;
+                    });
+                });
+                gameHostResizeObs.observe(host);
+            }
         };
 
         p.draw = () => {
@@ -329,12 +378,16 @@ function mountGameSketch(host) {
 
             const wx = state.scroll + ROCKET_X();
             const tun = tunnelProfile(p, wx);
-            if (state.ry - ROCKET_H / 2 <= tun.top || state.ry + ROCKET_H / 2 >= tun.bottom) {
+            const canCollide = performance.now() >= state.collisionOkAfterMs;
+            if (
+                canCollide &&
+                (state.ry - ROCKET_H / 2 <= tun.top || state.ry + ROCKET_H / 2 >= tun.bottom)
+            ) {
                 state.dead = true;
                 silenceEngineHum();
                 p.fill(248, 113, 113, 180);
                 p.textAlign(p.CENTER, p.CENTER);
-                p.textSize(14);
+                p.textSize(p.max(15, p.width * 0.045));
                 p.text('船體撞擊 · 任務結束', p.width / 2, p.height / 2);
                 p.noLoop();
                 return;
@@ -371,12 +424,17 @@ function mountGameSketch(host) {
             p.fill(148, 163, 184);
             p.noStroke();
             p.textAlign(p.LEFT, p.TOP);
-            p.textSize(10);
+            p.textSize(p.max(11, p.width * 0.032));
             p.text(`航程 ${runtime.gameDistance.toFixed(0)} m · 推力 ${(thrust * 100).toFixed(0)}%`, 8, 8);
         };
 
         p.windowResized = () => {
-            p.resizeCanvas(Math.max(300, host.clientWidth), 240);
+            const { w, h } = gameCanvasDims(host);
+            p.resizeCanvas(w, h);
+            if (!state.dead) {
+                alignRocketToTunnel();
+                state.collisionOkAfterMs = performance.now() + 400;
+            }
         };
     }, host);
 }
@@ -582,7 +640,7 @@ function buildPinOptionsHtml(selected) {
 function injectShellHtml() {
     const pinSel = buildPinOptionsHtml(loadSavedPinIndex());
     rootEl.innerHTML = `
-<div class="ar-root">
+<div class="ar-root ar-layout--mobile">
   <div data-ar-view="hub" class="ar-view ar-view--on">
     <h1>星際旅航者：類比引擎</h1>
     <p class="ar-sub">INTERSTELLAR VOYAGER · ANALOG ENGINE</p>
@@ -628,12 +686,16 @@ function injectShellHtml() {
   </div>
 
   <div data-ar-view="game" class="ar-view">
-    <h1>行星逃脫</h1>
-    <p class="ar-sub">THE ESCAPE · THRUST = 校準後推力係數</p>
-    <div class="ar-panel">
-      <div id="ar-game-canvas"></div>
-      <div class="ar-row">
-        <button type="button" class="ar-btn ar-btn--ghost" id="ar-exit-game">返回艦橋</button>
+    <div class="ar-game-wrap">
+      <div class="ar-game-intro">
+        <h1>行星逃脫</h1>
+        <p class="ar-sub">THE ESCAPE · THRUST = 校準後推力係數</p>
+      </div>
+      <div class="ar-panel ar-game-panel">
+        <div id="ar-game-canvas" class="ar-game-canvas-host"></div>
+        <div class="ar-row ar-game-actions">
+          <button type="button" class="ar-btn ar-btn--ghost" id="ar-exit-game">返回艦橋</button>
+        </div>
       </div>
     </div>
   </div>
@@ -725,6 +787,9 @@ export async function init(container) {
     wizardLockedPin = null;
     injectCss();
     injectShellHtml();
+    applyArLayout();
+    arLayoutHandler = () => applyArLayout();
+    window.addEventListener('resize', arLayoutHandler);
     wireShellEvents();
     syncPinSelectToCal();
     await loadP5();
@@ -771,6 +836,10 @@ export async function onConnected() {
 }
 
 export async function cleanup() {
+    if (arLayoutHandler) {
+        window.removeEventListener('resize', arLayoutHandler);
+        arLayoutHandler = null;
+    }
     window.removeEventListener('omnisense:data', dataListener);
     dataListener = null;
     clearWizardTimers();

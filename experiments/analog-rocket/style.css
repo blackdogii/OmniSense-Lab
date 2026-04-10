@@ -11,16 +11,37 @@
     --ar-line: rgba(34, 211, 238, 0.35);
     --ar-text: #e2e8f0;
     --ar-dim: #64748b;
-    max-width: 920px;
+    width: 100%;
+    max-width: min(56rem, 100%);
     margin: 0 auto;
-    padding: 0.6rem 0.5rem 1.25rem;
+    padding: 0.55rem 0.5rem 1.1rem;
     color: var(--ar-text);
     font-family: ui-sans-serif, system-ui, 'Segoe UI', sans-serif;
-    min-height: 280px;
+}
+
+.ar-layout--desktop {
+    padding: 0.85rem 1rem 1.5rem;
+    max-width: min(60rem, 98vw);
+}
+
+.ar-layout--desktop .ar-sub {
+    font-size: 0.72rem;
+    margin-bottom: 1rem;
+}
+
+.ar-layout--mobile {
+    padding: 0.45rem 0.4rem 1rem;
+}
+
+.ar-root.ar-layout--mobile h1 {
+    font-size: 1.05rem;
+}
+
+.ar-root.ar-layout--desktop h1 {
+    font-size: 1.35rem;
 }
 
 .ar-root h1 {
-    font-size: 1.15rem;
     font-weight: 800;
     letter-spacing: 0.06em;
     text-transform: uppercase;
@@ -187,12 +208,60 @@
     letter-spacing: 0.2em;
 }
 
+/* 遊戲關卡：手機以直向大畫布為主；桌機並排標題與舞台 */
+.ar-game-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.ar-game-intro {
+    flex-shrink: 0;
+}
+
+.ar-game-panel {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+}
+
+.ar-layout--desktop .ar-game-wrap {
+    flex-direction: row;
+    align-items: flex-start;
+    gap: 1rem 1.25rem;
+}
+
+.ar-layout--desktop .ar-game-intro {
+    flex: 0 0 min(14rem, 28%);
+    position: sticky;
+    top: 0.5rem;
+}
+
+.ar-layout--desktop .ar-game-panel {
+    flex: 1;
+    min-width: 0;
+}
+
+.ar-layout--desktop .ar-game-actions {
+    margin-top: 0.85rem;
+}
+
 #ar-game-canvas {
     width: 100%;
+    min-height: 300px;
     border-radius: 0.5rem;
     overflow: hidden;
     background: #020617;
     border: 1px solid rgba(51, 65, 85, 0.6);
+}
+
+.ar-layout--desktop #ar-game-canvas {
+    min-height: 420px;
+}
+
+.ar-layout--mobile #ar-game-canvas {
+    min-height: 280px;
 }
 
 .ar-big-actions {
