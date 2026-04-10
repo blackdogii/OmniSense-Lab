@@ -35,6 +35,17 @@
     line-height: 1.45;
 }
 
+.ohm-range-note {
+    font-size: 0.65rem;
+    color: var(--ohm-muted);
+    margin-top: 0.45rem;
+    line-height: 1.5;
+    text-align: left;
+    max-width: 32rem;
+    margin-left: auto;
+    margin-right: auto;
+}
+
 .ohm-tabs {
     display: flex;
     gap: 0.35rem;

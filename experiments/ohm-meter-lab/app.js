@@ -21,12 +21,24 @@ const PRESET_ACTIVE = 1 << CH_ADC;
 const PRESET_PULLUP = 1 << CH_ADC;
 const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 
-/** 三種量程：標稱上拉電阻實體（G2 內建上拉約 10kΩ 量程；校準可更新 R_pullup） */
+/**
+ * 三種量程鈕：對應分壓公式裡的 R_pullup「標稱」（10k／100k／1M 常見外接上拉），
+ * 方便在不同待測阻值範圍內讓 ADC 落在中段；與 G2「內建量測」硬體路徑並不衝突——
+ * 若實際只使用內建弱上拉，仍以「低阻程」為預設，並用 The Lab 校準出 R_pullup′。
+ */
 const RANGE_MODES = [
-    { id: '10k', label: '低阻程 · 10kΩ 上拉', rPuNom: 10e3 },
-    { id: '100k', label: '中阻程 · 100kΩ 上拉', rPuNom: 100e3 },
-    { id: '1M', label: '高阻程 · 1MΩ 上拉', rPuNom: 1e6 }
+    { id: '10k', label: '低阻程（R_pullup 標稱 10kΩ）', rPuNom: 10e3 },
+    { id: '100k', label: '中阻程（R_pullup 標稱 100kΩ）', rPuNom: 100e3 },
+    { id: '1M', label: '高阻程（R_pullup 標稱 1MΩ）', rPuNom: 1e6 }
 ];
+
+/** 比例讀值 ≤ 此值：視為可能已接入待測（分壓拉低）；可依接線微調 */
+const ADC_ATTACH_MAX = 3480;
+/** 比例讀值 ≥ 此值：視為開路／已取下待測；須高於 ATTACH 形成遲滯 */
+const ADC_REMOVE_MIN = 3680;
+const SETTLE_NEED = 14;
+const SETTLE_SPREAD_MAX = 10;
+const SETTLE_BUF_MAX = 24;
 
 let rootEl = null;
 let styleLink = null;
@@ -35,6 +47,13 @@ let vizP5 = null;
 
 let lastAdc = 0;
 let rangeId = '10k';
+
+/** @type {'no_dut' | 'settling' | 'locked'} */
+let measurePhase = 'no_dut';
+let settleBuf = [];
+/** 鎖定後用以顯示的 ADC 平均與電阻 */
+let lockedAdc = null;
+let lockedRxVal = null;
 
 /** @type {Record<string, { rPuCal: number | null, samples: { r: number; adc: number }[] }>} */
 let labByRange = {
@@ -204,31 +223,106 @@ function exportJson() {
     URL.revokeObjectURL(a.href);
 }
 
+function resetMeasurePipeline() {
+    measurePhase = 'no_dut';
+    settleBuf = [];
+    lockedAdc = null;
+    lockedRxVal = null;
+}
+
+/**
+ * 未接待測時腳位常接近滿刻度（浮動／開路）；接入後讀值會顯著下降。
+ * 穩定後鎖定 R_x，直到讀值再度升至 REMOVE 閾值（取下電阻）。
+ */
+function stepMeasurePipeline(adc) {
+    if (measurePhase === 'no_dut') {
+        if (adc <= ADC_ATTACH_MAX) {
+            measurePhase = 'settling';
+            settleBuf = [adc];
+        }
+        return;
+    }
+    if (adc >= ADC_REMOVE_MIN) {
+        resetMeasurePipeline();
+        return;
+    }
+    if (measurePhase === 'settling') {
+        settleBuf.push(adc);
+        if (settleBuf.length > SETTLE_BUF_MAX) settleBuf.shift();
+        if (settleBuf.length < SETTLE_NEED) return;
+        const mn = Math.min(...settleBuf);
+        const mx = Math.max(...settleBuf);
+        if (mx - mn > SETTLE_SPREAD_MAX) return;
+        const avg = settleBuf.reduce((a, b) => a + b, 0) / settleBuf.length;
+        const rxTry = rxDisplay(avg);
+        if (avg < 8 || avg > ADC_MAX - 8 || !Number.isFinite(rxTry)) return;
+        lockedAdc = avg;
+        lockedRxVal = rxTry;
+        measurePhase = 'locked';
+        return;
+    }
+    // locked：維持 lockedRxVal，直至 REMOVE 於上方處理
+}
+
 function updateMeasureUi() {
-    const adc = lastAdc;
+    const adcLive = lastAdc;
     const rPu = rPuEffective();
-    const rx = rxDisplay(adc);
-    const vMv = adcToMv(adc);
+    const vMvLive = adcToMv(adcLive);
     const elR = rootEl?.querySelector('#ohm-rx-val');
     const elRaw = rootEl?.querySelector('#ohm-adc-raw');
     const elWarn = rootEl?.querySelector('#ohm-warn');
-    if (elR) elR.textContent = formatOhm(rx);
+
+    if (elR) {
+        if (measurePhase === 'no_dut') elR.textContent = '—';
+        else if (measurePhase === 'settling') {
+            const n = settleBuf.length;
+            elR.textContent = n >= 4 ? `${formatOhm(rxDisplay(settleBuf.reduce((a, b) => a + b, 0) / n))}（平均中）` : '…（感測中）';
+        } else elR.textContent = formatOhm(lockedRxVal);
+    }
+
     if (elRaw) {
-        elRaw.textContent = `換算電壓 ≈ ${vMv.toFixed(1)} mV（名義 ${VCC_MV} mV 滿刻度）· 比例讀值 ${adc.toFixed(0)} · R_pullup′ = ${formatOhm(rPu)}`;
+        if (measurePhase === 'no_dut') {
+            elRaw.textContent = `即時：比例讀值 ${adcLive.toFixed(0)} · 換算電壓 ≈ ${vMvLive.toFixed(1)} mV · R_pullup′ = ${formatOhm(rPu)}`;
+        } else if (measurePhase === 'settling') {
+            elRaw.textContent = `即時：比例讀值 ${adcLive.toFixed(0)} · 樣本 ${settleBuf.length}/${SETTLE_NEED}（變動需 ≤ ${SETTLE_SPREAD_MAX}）`;
+        } else {
+            const v = adcToMv(lockedAdc ?? 0);
+            elRaw.textContent = `鎖定：比例讀值 ${(lockedAdc ?? 0).toFixed(0)}（平均） · ≈ ${v.toFixed(1)} mV · R_pullup′ = ${formatOhm(rPu)}`;
+        }
     }
 
     if (!elWarn) return;
     elWarn.classList.remove('ohm-warn--ok', 'hidden');
-    if (adc < ADC_SAFE_LO) {
+
+    if (measurePhase === 'no_dut') {
+        elWarn.textContent =
+            '尚未偵測到待測電阻：讀值仍偏高（開路或近滿刻度）。請接好待測件到量測腳與 GND。';
+        elWarn.classList.remove('ohm-warn--ok');
+        return;
+    }
+
+    const adcHint = measurePhase === 'locked' ? lockedAdc ?? adcLive : adcLive;
+    if (!Number.isFinite(adcHint)) {
+        elWarn.textContent = '量測中…';
+        return;
+    }
+
+    if (measurePhase === 'settling') {
+        elWarn.textContent = '已感測到元件：蒐集樣本並平均中，請保持接線穩定。';
+        elWarn.classList.add('ohm-warn--ok');
+        return;
+    }
+
+    if (adcHint < ADC_SAFE_LO) {
         const x = boundaryRAt(ADC_SAFE_LO, rPu);
         elWarn.textContent = `量程提示：讀值 < ${ADC_SAFE_LO} → 電阻 < ${formatOhm(x)}（易飽和，請換高阻程或檢查接線）`;
         elWarn.classList.remove('ohm-warn--ok');
-    } else if (adc > ADC_SAFE_HI) {
+    } else if (adcHint > ADC_SAFE_HI) {
         const x = boundaryRAt(ADC_SAFE_HI, rPu);
         elWarn.textContent = `量程提示：讀值 > ${ADC_SAFE_HI} → 電阻 > ${formatOhm(x)}（易飽和，請換低阻程）`;
         elWarn.classList.remove('ohm-warn--ok');
     } else {
-        elWarn.textContent = '讀值在建議窗內（500–3500）。';
+        elWarn.textContent = '已鎖定讀值；讀值在建議窗內（500–3500）。取下電阻後將重新量測。';
         elWarn.classList.add('ohm-warn--ok');
     }
 }
@@ -269,6 +363,7 @@ function onData(ev) {
     const ch = ev.detail.channels[CH_ADC];
     if (!ch) return;
     lastAdc = ch.filtered;
+    stepMeasurePipeline(lastAdc);
     updateMeasureUi();
     vizP5?.redraw();
 }
@@ -360,6 +455,7 @@ function wireUi() {
     RANGE_MODES.forEach((m) => {
         rootEl?.querySelector(`[data-range="${m.id}"]`)?.addEventListener('click', () => {
             rangeId = m.id;
+            resetMeasurePipeline();
             rootEl?.querySelectorAll('.ohm-mode-btn').forEach((b) => {
                 b.classList.toggle('ohm-mode-btn--on', b.getAttribute('data-range') === rangeId);
             });
@@ -452,6 +548,7 @@ function wireUi() {
                 }
                 if (o.rangeId && RANGE_MODES.some((m) => m.id === o.rangeId)) rangeId = o.rangeId;
                 saveStorage();
+                resetMeasurePipeline();
                 rootEl?.querySelectorAll('.ohm-mode-btn').forEach((b) => {
                     b.classList.toggle('ohm-mode-btn--on', b.getAttribute('data-range') === rangeId);
                 });
@@ -494,7 +591,8 @@ function buildDom(root) {
 <div class="ohm-root">
   <div class="ohm-hero">
     <div class="ohm-title">Ohmic Master</div>
-    <p class="ohm-sub">電阻鑑定師：精準之路 · 校準專家 · G2 分壓量測<br>物理模型：V = ${VCC_MV} mV × R_x ÷ (R_x + R_pullup)；裝置送上來的是 0–4095 比例讀值（對應接腳電壓）。現有韌體即可量測與校準；若日後更新韌體，可再享有 eFuse ADC 表與過採樣等強化。</p>
+    <p class="ohm-sub">物理模型：V = ${VCC_MV} mV × R_x ÷ (R_x + R_pullup)；裝置回報 0–4095 比例讀值。</p>
+    <p class="ohm-range-note">G2「內建電阻量測」提供固定量測腳位與上拉路徑；下方 10k／100k／1M 三檔是<strong>公式裡 R_pullup 的標稱</strong>（對應常見外接分壓上拉），方便依待測阻值切換量程。僅用內建路徑時請先選「低阻程」，並在 The Lab 校準 R_pullup′。</p>
   </div>
   <div class="ohm-tabs">
     <button type="button" class="ohm-tab ohm-tab--active" data-tab="m">測量</button>
@@ -507,7 +605,7 @@ function buildDom(root) {
       <div class="ohm-readout-val" id="ohm-rx-val">—</div>
       <div class="ohm-readout-raw" id="ohm-adc-raw"></div>
     </div>
-    <div class="ohm-warn ohm-warn--ok" id="ohm-warn">連線後顯示讀值。</div>
+    <div class="ohm-warn ohm-warn--ok" id="ohm-warn">連線後：偵測待測件 → 平均 → 鎖定電阻讀值（取下後重新量測）。</div>
     <p class="ohm-formula">量程安全：比例讀值 &lt;${ADC_SAFE_LO} 或 &gt;${ADC_SAFE_HI} 時顯示邊界電阻提示。The Lab 以多點平均反推並儲存 R_pullup（取代拋物線擬合）。</p>
   </div>
   <div class="ohm-panel" data-panel="lab">
@@ -551,6 +649,7 @@ export async function init(root) {
     omni.currentViewId = 'ohm-meter-lab';
     loadStorage();
     buildDom(root);
+    resetMeasurePipeline();
     mountP5(root.querySelector('#ohm-canvas-host'));
     wireUi();
     dataHandler = onData;
