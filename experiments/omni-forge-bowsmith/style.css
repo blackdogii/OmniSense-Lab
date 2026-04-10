@@ -1,4 +1,4 @@
-/* Omni-Forge: The Bowsmith Trial — futuristic forge / appraisal */
+/* Omni-Forge: The Bowsmith Trial — responsive forge / appraisal */
 
 .of-root {
     --of-bg: #070b14;
@@ -8,9 +8,14 @@
     --of-violet: #a78bfa;
     --of-amber: #fbbf24;
     --of-text: #e8f0ff;
-    --of-muted: #64748b;
-    max-width: 28rem;
+    --of-muted: #94a3b8;
+    --of-card-title: clamp(0.8rem, 2.8vw, 0.95rem);
+    --of-body: clamp(0.95rem, 3.6vw, 1.125rem);
+    --of-lore-size: clamp(0.75rem, 2.5vw, 0.88rem);
+    width: 100%;
+    max-width: min(42rem, 100%);
     margin: 0 auto;
+    padding: 0.5rem 0.65rem 1rem;
     font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
     color: var(--of-text);
 }
@@ -19,21 +24,178 @@
     box-sizing: border-box;
 }
 
+/* ——— 手機：直向、大字 ——— */
+.of-layout--mobile .of-main-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.of-layout--mobile .of-col--hud {
+    order: 1;
+}
+
+.of-layout--mobile .of-col--viz {
+    order: 2;
+}
+
+.of-layout--mobile .of-lore {
+    font-size: var(--of-lore-size);
+    line-height: 1.5;
+}
+
+.of-layout--mobile .of-card h2 {
+    font-size: var(--of-card-title);
+}
+
+.of-layout--mobile .of-card p {
+    font-size: var(--of-body);
+}
+
+.of-layout--mobile .of-touch-hint {
+    font-size: clamp(0.85rem, 3.2vw, 0.95rem);
+    line-height: 1.5;
+}
+
+.of-layout--mobile .of-canvas-host {
+    min-height: 420px;
+}
+
+.of-layout--mobile .of-stamp {
+    width: min(8.5rem, 42vw);
+    height: min(8.5rem, 42vw);
+    font-size: clamp(2.75rem, 10vw, 3.5rem);
+}
+
+.of-layout--mobile .of-cert-title {
+    font-size: clamp(0.72rem, 2.2vw, 0.85rem);
+}
+
+.of-layout--mobile .of-cert-name {
+    font-size: clamp(1.35rem, 5vw, 1.75rem);
+}
+
+.of-layout--mobile .of-score-line {
+    font-size: clamp(0.95rem, 3.5vw, 1.1rem);
+}
+
+.of-layout--mobile .of-score-line strong {
+    font-size: clamp(1.35rem, 5vw, 1.65rem);
+}
+
+.of-layout--mobile .of-lock-msg,
+.of-layout--mobile .of-pass-msg {
+    font-size: clamp(0.88rem, 3.2vw, 1rem);
+    line-height: 1.5;
+}
+
+.of-layout--mobile .of-btn {
+    font-size: clamp(0.88rem, 3vw, 1rem);
+    padding: 0.85rem 1.1rem;
+}
+
+/* ——— 網頁（寬螢幕）：雙欄、更寬讀區 ——— */
+.of-layout--desktop {
+    max-width: min(56rem, 96vw);
+    padding: 0.75rem 1rem 1.25rem;
+}
+
+.of-layout--desktop .of-hero {
+    margin-bottom: 0.35rem;
+}
+
+.of-layout--desktop .of-lore {
+    font-size: 0.9rem;
+    line-height: 1.55;
+    padding: 0.65rem 0.85rem;
+}
+
+.of-layout--desktop .of-touch-hint {
+    font-size: 0.95rem;
+    line-height: 1.55;
+}
+
+.of-layout--desktop .of-main-grid {
+    display: grid;
+    grid-template-columns: minmax(14rem, 1fr) minmax(18rem, 1.35fr);
+    gap: 1rem 1.25rem;
+    align-items: start;
+}
+
+.of-layout--desktop .of-col--hud {
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.of-layout--desktop .of-col--viz {
+    min-width: 0;
+}
+
+.of-layout--desktop .of-card h2 {
+    font-size: 0.95rem;
+}
+
+.of-layout--desktop .of-card p {
+    font-size: 1.05rem;
+    line-height: 1.55;
+}
+
+.of-layout--desktop .of-canvas-host {
+    min-height: 480px;
+}
+
+.of-layout--desktop .of-cert {
+    padding: 1.35rem 1.5rem 1.5rem;
+}
+
+.of-layout--desktop .of-cert-title {
+    font-size: 0.78rem;
+}
+
+.of-layout--desktop .of-cert-name {
+    font-size: 1.65rem;
+}
+
+.of-layout--desktop .of-stamp {
+    width: 7.5rem;
+    height: 7.5rem;
+    font-size: 3rem;
+}
+
+.of-layout--desktop .of-score-line {
+    font-size: 1.05rem;
+}
+
+.of-layout--desktop .of-score-line strong {
+    font-size: 1.75rem;
+}
+
+.of-layout--desktop .of-lock-msg,
+.of-layout--desktop .of-pass-msg {
+    font-size: 0.95rem;
+}
+
+.of-layout--desktop .of-btn {
+    font-size: 0.95rem;
+    padding: 0.75rem 1.15rem;
+}
+
 .of-hud {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
     justify-content: space-between;
     gap: 0.5rem;
-    margin-bottom: 0.65rem;
-    padding: 0.5rem 0.65rem;
+    margin-bottom: 0.2rem;
+    padding: 0.55rem 0.75rem;
     border-radius: 0.75rem;
     background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(30, 27, 75, 0.35));
     border: 1px solid var(--of-line);
 }
 
 .of-trial-badge {
-    font-size: 0.65rem;
+    font-size: clamp(0.68rem, 2vw, 0.75rem);
     font-weight: 800;
     letter-spacing: 0.14em;
     text-transform: uppercase;
@@ -41,9 +203,9 @@
 }
 
 .of-phase-pill {
-    font-size: 0.7rem;
+    font-size: clamp(0.72rem, 2.1vw, 0.8rem);
     font-weight: 700;
-    padding: 0.2rem 0.55rem;
+    padding: 0.25rem 0.65rem;
     border-radius: 999px;
     border: 1px solid rgba(167, 139, 250, 0.45);
     color: var(--of-violet);
@@ -64,37 +226,34 @@
 }
 
 .of-lore {
-    font-size: 0.65rem;
     color: var(--of-muted);
-    line-height: 1.45;
-    margin-bottom: 0.5rem;
-    padding: 0.45rem 0.5rem;
-    border-left: 2px solid rgba(56, 189, 248, 0.4);
+    margin: 0 0 0.5rem;
+    padding: 0.55rem 0.65rem;
+    border-left: 3px solid rgba(56, 189, 248, 0.45);
     background: rgba(15, 23, 42, 0.5);
+    border-radius: 0 0.5rem 0.5rem 0;
 }
 
 .of-card {
-    padding: 0.75rem 0.85rem;
+    padding: 0.85rem 1rem;
     border-radius: 0.85rem;
-    margin-bottom: 0.6rem;
+    margin-bottom: 0;
     background: var(--of-panel);
     border: 1px solid rgba(51, 65, 85, 0.5);
     box-shadow: 0 0 32px rgba(56, 189, 248, 0.06);
 }
 
 .of-card h2 {
-    margin: 0 0 0.35rem;
-    font-size: 0.7rem;
+    margin: 0 0 0.45rem;
     font-weight: 800;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.12em;
     text-transform: uppercase;
     color: var(--of-cyan);
 }
 
 .of-card p {
     margin: 0;
-    font-size: 0.82rem;
-    line-height: 1.45;
+    line-height: 1.55;
 }
 
 .of-canvas-host {
@@ -103,7 +262,6 @@
     overflow: hidden;
     border: 1px solid rgba(56, 189, 248, 0.2);
     background: var(--of-bg);
-    min-height: 320px;
 }
 
 .of-canvas-host canvas {
@@ -113,29 +271,27 @@
 }
 
 .of-energy-label {
-    font-size: 0.62rem;
+    font-size: clamp(0.68rem, 2vw, 0.75rem);
     font-weight: 800;
-    letter-spacing: 0.2em;
+    letter-spacing: 0.18em;
     text-transform: uppercase;
     color: var(--of-violet);
     text-align: center;
-    margin: 0.35rem 0 0.15rem;
+    margin: 0.25rem 0 0;
     text-shadow: 0 0 12px rgba(167, 139, 250, 0.4);
 }
 
 .of-actions {
     display: flex;
     flex-direction: column;
-    gap: 0.5rem;
-    margin-top: 0.75rem;
+    gap: 0.55rem;
+    margin-top: 0.85rem;
 }
 
 .of-btn {
     width: 100%;
-    padding: 0.65rem 1rem;
     border-radius: 0.65rem;
     font-weight: 800;
-    font-size: 0.78rem;
     letter-spacing: 0.06em;
     border: 1px solid transparent;
     cursor: pointer;
@@ -173,8 +329,8 @@
 
 .of-cert {
     display: none;
-    margin-top: 0.75rem;
-    padding: 1rem 1rem 1.1rem;
+    margin-top: 0.85rem;
+    padding: 1.15rem 1rem 1.25rem;
     border-radius: 1rem;
     background:
         linear-gradient(145deg, rgba(15, 23, 42, 0.95), rgba(30, 27, 75, 0.55)),
@@ -203,6 +359,24 @@
     display: block;
 }
 
+.of-relax-banner {
+    position: relative;
+    z-index: 1;
+    text-align: center;
+    font-size: clamp(0.85rem, 3vw, 0.98rem);
+    line-height: 1.45;
+    padding: 0.55rem 0.65rem;
+    margin-bottom: 0.75rem;
+    border-radius: 0.65rem;
+    color: #fde68a;
+    background: rgba(120, 53, 15, 0.35);
+    border: 1px solid rgba(251, 191, 36, 0.35);
+}
+
+.of-relax-banner strong {
+    color: #fcd34d;
+}
+
 .of-cert-header {
     text-align: center;
     position: relative;
@@ -210,15 +384,13 @@
 }
 
 .of-cert-title {
-    font-size: 0.62rem;
     letter-spacing: 0.35em;
     font-weight: 800;
     color: var(--of-cyan);
-    margin-bottom: 0.25rem;
+    margin-bottom: 0.35rem;
 }
 
 .of-cert-name {
-    font-size: 1.05rem;
     font-weight: 900;
     background: linear-gradient(90deg, #e0f2fe, #c4b5fd);
     -webkit-background-clip: text;
@@ -227,14 +399,11 @@
 }
 
 .of-stamp {
-    margin: 0.75rem auto 0;
-    width: 5.5rem;
-    height: 5.5rem;
+    margin: 0.85rem auto 0;
     border-radius: 50%;
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 2.25rem;
     font-weight: 900;
     border: 3px dashed rgba(251, 191, 36, 0.65);
     color: var(--of-amber);
@@ -270,60 +439,65 @@
 }
 
 .of-cert-radar-host {
-    margin-top: 0.65rem;
-    min-height: 160px;
+    margin-top: 0.75rem;
+    min-height: 140px;
     position: relative;
     z-index: 1;
 }
 
 .of-score-line {
     text-align: center;
-    font-size: 0.75rem;
-    margin-top: 0.5rem;
+    margin-top: 0.55rem;
     color: var(--of-muted);
     position: relative;
     z-index: 1;
+    line-height: 1.45;
+}
+
+.of-score-meta {
+    display: block;
+    margin-top: 0.35rem;
+    font-size: 0.88em;
+    opacity: 0.9;
 }
 
 .of-score-line strong {
     color: var(--of-cyan);
-    font-size: 1.1rem;
 }
 
 .of-lock-msg {
-    font-size: 0.72rem;
     color: #fca5a5;
     text-align: center;
-    margin-top: 0.5rem;
-    padding: 0.45rem;
-    border-radius: 0.5rem;
+    margin-top: 0.65rem;
+    padding: 0.55rem 0.65rem;
+    border-radius: 0.55rem;
     background: rgba(127, 29, 29, 0.25);
     border: 1px solid rgba(248, 113, 113, 0.25);
 }
 
 .of-pass-msg {
-    font-size: 0.72rem;
     color: #86efac;
     text-align: center;
-    margin-top: 0.5rem;
+    margin-top: 0.65rem;
 }
 
 .of-touch-row {
     display: flex;
-    align-items: center;
-    gap: 0.6rem;
-    margin-bottom: 0.5rem;
+    align-items: flex-start;
+    gap: 0.75rem;
+    margin-bottom: 0;
 }
 
 .of-touch-dot {
-    width: 2.75rem;
-    height: 2.75rem;
+    flex-shrink: 0;
+    width: 3rem;
+    height: 3rem;
     border-radius: 50%;
     border: 2px solid rgba(51, 65, 85, 0.9);
     display: flex;
     align-items: center;
     justify-content: center;
-    font-size: 0.65rem;
+    font-size: 0.75rem;
     font-weight: 800;
     color: var(--of-muted);
     transition: box-shadow 0.2s, border-color 0.2s, transform 0.15s;
@@ -338,6 +512,11 @@
 
 .of-touch-hint {
     margin: 0;
-    font-size: 0.75rem;
     color: var(--of-muted);
+}
+
+.of-layout--desktop .of-touch-dot {
+    width: 3.25rem;
+    height: 3.25rem;
+    font-size: 0.8rem;
 }

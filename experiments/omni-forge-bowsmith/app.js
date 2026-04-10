@@ -1,6 +1,6 @@
 /**
  * Omni-Forge: The Bowsmith Trial
- * 5 次試煉 → 截尾平均（去極值）· Void / Titan / Return 三階段 · 魔法能量計 · 粒子
+ * 3 次試煉 → 截尾平均（去極值）· Void / Titan / Return 三階段 · 魔法能量計 · 粒子
  */
 
 import { omni } from '../../web/core/state.js';
@@ -10,8 +10,13 @@ import * as ble from '../../web/core/ble.js';
 
 const CH_TOUCH = 0;
 const CH_ADC = 2;
-const TRIALS_REQUIRED = 5;
+const TRIALS_REQUIRED = 3;
 const PASS_SCORE = 70;
+/** 連續兩輪未達 PASS_SCORE 後，下一輪起改用此門檻 */
+const PASS_SCORE_RELAXED = 55;
+
+/** 連續「整組試煉結束但未達標準」次數（達標或 Remake 會歸零／調整） */
+let failedFullRuns = 0;
 
 const VOID_MS = 2600;
 const TITAN_WINDOW_MS = 4200;
@@ -35,6 +40,8 @@ let rootEl = null;
 let styleLink = null;
 let dataHandler = null;
 let vizP5 = null;
+let p5ResizeHandler = null;
+let layoutMediaHandler = null;
 let rafId = 0;
 let vizLoopOn = false;
 
@@ -129,8 +136,12 @@ function stddev(a, m) {
     return Math.sqrt(s / (a.length - 1));
 }
 
-/** 至少 5 筆；去最高最低後平均 */
-function trimmedMean5(arr) {
+function getEffectivePassScore() {
+    return failedFullRuns >= 2 ? PASS_SCORE_RELAXED : PASS_SCORE;
+}
+
+/** 至少 TRIALS_REQUIRED 筆；去最高最低後平均（3 筆時為中位數） */
+function trimmedMeanTrials(arr) {
     if (arr.length < TRIALS_REQUIRED) return NaN;
     const s = [...arr].sort((a, b) => a - b);
     const slice = s.slice(1, -1);
@@ -218,9 +229,16 @@ function finalizeTrial(score) {
         );
         return;
     }
-    trimmedMean = trimmedMean5(trialScores);
+    trimmedMean = trimmedMeanTrials(trialScores);
     finalScore = Math.round(trimmedMean);
     letterGrade = letterFromScore(finalScore);
+    const effectivePass = getEffectivePassScore();
+    const passed = finalScore >= effectivePass;
+    if (passed) {
+        failedFullRuns = 0;
+    } else if (finalScore < PASS_SCORE) {
+        failedFullRuns++;
+    }
     radarVals = [
         Math.min(1, finalScore / 100),
         Math.min(1, Math.max(0, (45 - baselineStd) / 45)),
@@ -229,16 +247,20 @@ function finalizeTrial(score) {
     ];
     phase = 'CERT';
     particles.length = 0;
-    showCertificate();
+    showCertificate(passed, effectivePass);
     vizP5?.redraw();
     window.dispatchEvent(
         new CustomEvent('omnisense:forge-result', {
-            detail: { passed: finalScore >= PASS_SCORE, score: finalScore, grade: letterGrade, trials: [...trialScores] }
+            detail: { passed, score: finalScore, grade: letterGrade, trials: [...trialScores], passThreshold: effectivePass }
         })
     );
 }
 
-function showCertificate() {
+/**
+ * @param {boolean} passed
+ * @param {number} effectivePass
+ */
+function showCertificate(passed, effectivePass) {
     const cert = rootEl?.querySelector('#of-cert');
     const stamp = rootEl?.querySelector('#of-stamp');
     const sc = rootEl?.querySelector('#of-final-score');
@@ -246,14 +268,28 @@ function showCertificate() {
     const pass = rootEl?.querySelector('#of-pass-msg');
     const nextBtn = rootEl?.querySelector('#of-next');
     const remake = rootEl?.querySelector('#of-remake');
+    const relaxBanner = rootEl?.querySelector('#of-relax-banner');
     cert?.classList.add('of-cert--visible');
     if (stamp) {
         stamp.textContent = letterGrade;
         stamp.className = 'of-stamp of-stamp--' + letterGrade.toLowerCase();
     }
-    if (sc) sc.innerHTML = `截尾均分 <strong>${finalScore}</strong> / 100（5 次去極值）`;
-    const passed = finalScore >= PASS_SCORE;
-    lock?.classList.toggle('hidden', passed);
+    if (sc) {
+        sc.innerHTML = `截尾均分 <strong>${finalScore}</strong> / 100<span class="of-score-meta">（${TRIALS_REQUIRED} 次試煉，去最高／最低）</span>`;
+    }
+    if (relaxBanner) {
+        const showRelax = effectivePass < PASS_SCORE;
+        relaxBanner.classList.toggle('hidden', !showRelax);
+        if (showRelax) {
+            relaxBanner.innerHTML = `已為你調降鑑定門檻：<strong>${effectivePass}</strong> 分（原 ${PASS_SCORE} 分）`;
+        }
+    }
+    if (lock) {
+        lock.classList.toggle('hidden', passed);
+        if (!passed) {
+            lock.textContent = `分數未達 ${effectivePass} 分（無法解鎖下一試煉）。可 Remake 再試，或累積兩輪未達 ${PASS_SCORE} 分後將自動調降門檻。`;
+        }
+    }
     pass?.classList.toggle('hidden', !passed);
     if (nextBtn) {
         nextBtn.classList.remove('hidden');
@@ -268,6 +304,7 @@ function hideCertificate() {
     rootEl?.querySelector('#of-lock-msg')?.classList.add('hidden');
     rootEl?.querySelector('#of-pass-msg')?.classList.add('hidden');
     rootEl?.querySelector('#of-next')?.classList.add('hidden');
+    rootEl?.querySelector('#of-relax-banner')?.classList.add('hidden');
 }
 
 function updateTrialBadge() {
@@ -417,15 +454,29 @@ function onData(ev) {
     lastAdc = v2;
 }
 
+function canvasDims(host) {
+    const cw = Math.max(300, host.clientWidth || 360);
+    const desktop = typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches;
+    const ch = desktop ? 480 : 420;
+    return { cw, ch, desktop };
+}
+
 function mountP5(host) {
     const P = window.p5;
     vizP5 = new P((p) => {
         const L = ['虛空', '巨力', '回響', '穩定'];
 
         p.setup = () => {
-            p.createCanvas(Math.max(300, host.clientWidth || 320), 340).parent(host);
+            const { cw, ch } = canvasDims(host);
+            p.createCanvas(cw, ch).parent(host);
             p.colorMode(p.HSB, 360, 100, 100, 1);
             p.noLoop();
+            p5ResizeHandler = () => {
+                const { cw: nw, ch: nh } = canvasDims(host);
+                p.resizeCanvas(nw, nh);
+                p.redraw();
+            };
+            window.addEventListener('resize', p5ResizeHandler);
         };
 
         p.draw = () => {
@@ -434,10 +485,13 @@ function mountP5(host) {
             const h = p.height;
             const cx = w / 2;
             const en = energyNorm();
+            const tMain = p.max(16, p.min(26, w * 0.055));
+            const tSub = p.max(13, p.min(20, w * 0.042));
+            const tHud = p.max(12, p.min(17, w * 0.034));
 
             if (phase === 'CERT') {
                 p.colorMode(p.RGB, 255);
-                const r = p.min(w, h) * 0.28;
+                const r = p.min(w, h) * 0.3;
                 p.push();
                 p.translate(cx, h * 0.42);
                 p.stroke(60, 70, 90);
@@ -458,10 +512,10 @@ function mountP5(host) {
                 p.fill(200);
                 p.noStroke();
                 p.textAlign(p.CENTER, p.CENTER);
-                p.textSize(9);
+                p.textSize(p.max(11, tSub * 0.85));
                 for (let i = 0; i < 4; i++) {
                     const ang = -p.HALF_PI + (i * p.TWO_PI) / 4;
-                    p.text(L[i], p.cos(ang) * (r + 26), p.sin(ang) * (r + 26));
+                    p.text(L[i], p.cos(ang) * (r + 32), p.sin(ang) * (r + 32));
                 }
                 p.pop();
                 p.colorMode(p.HSB, 360, 100, 100, 1);
@@ -482,23 +536,24 @@ function mountP5(host) {
                 phase === 'RETURN'
             ) {
                 const barW = w - 48;
-                const barY = h * 0.12;
+                const barY = h * 0.1;
+                const barH = p.max(22, tSub * 1.1);
                 p.fill(30, 41, 59);
                 p.noStroke();
-                p.rect(24, barY, barW, 20, 6);
+                p.rect(24, barY, barW, barH, 6);
                 const g2 = p.lerpColor(p.color(30, 58, 138), p.color(34, 211, 238), en);
                 p.fill(g2);
-                p.rect(24, barY, barW * en, 20, 6);
+                p.rect(24, barY, barW * en, barH, 6);
                 p.stroke(56, 189, 248, 100);
                 p.noFill();
-                p.rect(24, barY, barW, 20, 6);
+                p.rect(24, barY, barW, barH, 6);
                 p.fill(226, 232, 240);
                 p.noStroke();
-                p.textSize(11);
-                p.text('MAGIC ENERGY', cx, barY - 10);
-                p.textSize(10);
+                p.textSize(tHud);
+                p.text('MAGIC ENERGY', cx, barY - 12);
+                p.textSize(tHud * 0.92);
                 p.fill(148, 163, 184);
-                p.text(`${(en * 100).toFixed(0)} 魔導單位`, cx, barY + 34);
+                p.text(`${(en * 100).toFixed(0)} 魔導單位`, cx, barY + barH + 18);
             }
 
             p.colorMode(p.HSB, 360, 100, 100, 1);
@@ -508,29 +563,33 @@ function mountP5(host) {
                 p.noFill();
                 p.stroke(195, 40, 85, 0.5);
                 p.strokeWeight(5);
-                p.arc(cx, h * 0.55, 88, 88, -p.HALF_PI, -p.HALF_PI + a * p.TWO_PI);
+                const arcR = p.min(110, w * 0.28);
+                p.arc(cx, h * 0.52, arcR, arcR, -p.HALF_PI, -p.HALF_PI + a * p.TWO_PI);
             } else if (phase === 'TITAN_WIN') {
                 const u = p.constrain(1 - (performance.now() - phaseStartMs) / TITAN_WINDOW_MS, 0, 1);
                 const R = p.min(w, h) * 0.36 * (0.25 + 0.75 * u);
                 p.noFill();
                 p.stroke(265, 70, 90, 0.7);
                 p.strokeWeight(3);
-                p.circle(cx, h * 0.58, R);
+                p.circle(cx, h * 0.55, R);
                 p.fill(0, 0, 95);
                 p.noStroke();
-                p.textSize(13);
-                p.text(`${(u * (TITAN_WINDOW_MS / 1000)).toFixed(1)}s`, cx, h * 0.58);
+                p.textSize(tMain);
+                p.text(`${(u * (TITAN_WINDOW_MS / 1000)).toFixed(1)}s`, cx, h * 0.55);
             }
 
             if (phase === 'RETURN') {
                 p.fill(48, 90, 95);
-                p.textSize(11);
-                p.text('RETURN', cx, h - 16);
+                p.textSize(tSub);
+                p.text('RETURN', cx, h - 22);
             } else if (phase === 'IDLE' || phase === 'BETWEEN') {
                 p.colorMode(p.RGB, 255);
-                p.fill(100, 116, 139);
-                p.textSize(12);
-                p.text(phase === 'IDLE' ? '輕觸 G0 開始試煉' : '觸發 G0 或按鈕 — 下一輪', cx, h * 0.52);
+                p.fill(186, 198, 214);
+                p.textSize(tMain);
+                p.text(phase === 'IDLE' ? '輕觸 G0 開始試煉' : '觸發 G0 或按鈕 — 下一輪', cx, h * 0.5);
+                p.textSize(tSub * 0.95);
+                p.fill(148, 163, 184);
+                p.text(phase === 'IDLE' ? '共 3 輪，截尾計分' : '準備下一輪試煉', cx, h * 0.5 + tMain * 1.35);
                 p.colorMode(p.HSB, 360, 100, 100, 1);
             }
         };
@@ -574,25 +633,42 @@ function resetAll() {
     vizP5?.redraw();
 }
 
+function applyLayoutRoot() {
+    const inner = rootEl?.querySelector('#of-inner');
+    if (!inner) return;
+    const desktop = window.matchMedia('(min-width: 768px)').matches;
+    inner.classList.toggle('of-layout--desktop', desktop);
+    inner.classList.toggle('of-layout--mobile', !desktop);
+}
+
 function buildDom(root) {
     root.innerHTML = `
-<div class="of-root" id="of-inner">
-  <div class="of-lore">弓匠試煉：電阻定律 <strong>R = ρL/A</strong> — 拉距改變有效截面與長度，ADC 反映分壓能量。</div>
-  <div class="of-touch-row">
-    <div class="of-touch-dot" id="of-touch-dot">G0</div>
-    <p class="of-touch-hint">觸發鍵；每輪結束後再觸發下一輪（共 ${TRIALS_REQUIRED} 次試煉，截尾平均）。</p>
+<div class="of-root of-layout--mobile" id="of-inner">
+  <header class="of-hero">
+    <p class="of-lore">弓匠試煉：電阻定律 <strong>R = ρL/A</strong> — 拉距改變有效截面與長度，ADC 反映分壓能量。</p>
+    <div class="of-touch-row">
+      <div class="of-touch-dot" id="of-touch-dot">G0</div>
+      <p class="of-touch-hint">觸發鍵；每輪結束後再觸發下一輪（共 <strong>${TRIALS_REQUIRED} 次</strong>試煉，截尾平均）。連續兩輪未達 ${PASS_SCORE} 分時，將自動調降門檻以利通關。</p>
+    </div>
+  </header>
+  <div class="of-main-grid">
+    <div class="of-col of-col--hud">
+      <div class="of-hud">
+        <span class="of-trial-badge" id="of-trial-badge">TRIAL 0/${TRIALS_REQUIRED}</span>
+        <span class="of-phase-pill" id="of-phase-pill" data-phase="">—</span>
+      </div>
+      <div class="of-card">
+        <h2 id="of-hud-title">Omni-Forge</h2>
+        <p id="of-hud-body">輕觸 <strong>G0</strong> 開始。</p>
+      </div>
+      <div class="of-energy-label">✦ Magic Energy Meter ✦</div>
+    </div>
+    <div class="of-col of-col--viz">
+      <div class="of-canvas-host" id="of-canvas-host"></div>
+    </div>
   </div>
-  <div class="of-hud">
-    <span class="of-trial-badge" id="of-trial-badge">TRIAL 0/${TRIALS_REQUIRED}</span>
-    <span class="of-phase-pill" id="of-phase-pill" data-phase="">—</span>
-  </div>
-  <div class="of-card">
-    <h2 id="of-hud-title">Omni-Forge</h2>
-    <p id="of-hud-body">輕觸 <strong>G0</strong> 開始。</p>
-  </div>
-  <div class="of-energy-label">✦ Magic Energy Meter ✦</div>
-  <div class="of-canvas-host" id="of-canvas-host"></div>
   <div class="of-cert" id="of-cert">
+    <div class="of-relax-banner hidden" id="of-relax-banner" aria-live="polite"></div>
     <div class="of-cert-header">
       <div class="of-cert-title">APPRAISAL CERTIFICATE</div>
       <div class="of-cert-name">Omni-Forge — Bowsmith</div>
@@ -600,7 +676,7 @@ function buildDom(root) {
     <div class="of-stamp of-stamp--f" id="of-stamp">—</div>
     <p class="of-score-line" id="of-final-score"></p>
     <div class="of-cert-radar-host" id="of-cert-radar"></div>
-    <p class="of-lock-msg hidden" id="of-lock-msg">分數未達 ${PASS_SCORE} 分（無法解鎖下一試煉）。請 Remake 重新鍛造。</p>
+    <p class="of-lock-msg hidden" id="of-lock-msg"></p>
     <p class="of-pass-msg hidden" id="of-pass-msg">試煉通過：下一試煉已解鎖（可自實驗選單進入）。</p>
   </div>
   <div class="of-actions">
@@ -632,6 +708,12 @@ export async function init(root) {
     rootEl = root;
     omni.currentViewId = 'omni-forge-bowsmith';
     buildDom(root);
+    applyLayoutRoot();
+    layoutMediaHandler = () => {
+        applyLayoutRoot();
+        if (typeof p5ResizeHandler === 'function') p5ResizeHandler();
+    };
+    window.matchMedia('(min-width: 768px)').addEventListener('change', layoutMediaHandler);
     mountP5(root.querySelector('#of-canvas-host'));
     dataHandler = onData;
     window.addEventListener('omnisense:data', dataHandler);
@@ -650,6 +732,14 @@ export async function onConnected() {
 
 export async function cleanup() {
     stopViz();
+    if (p5ResizeHandler) {
+        window.removeEventListener('resize', p5ResizeHandler);
+        p5ResizeHandler = null;
+    }
+    if (layoutMediaHandler) {
+        window.matchMedia('(min-width: 768px)').removeEventListener('change', layoutMediaHandler);
+        layoutMediaHandler = null;
+    }
     window.removeEventListener('omnisense:data', dataHandler);
     dataHandler = null;
     if (vizP5) {
