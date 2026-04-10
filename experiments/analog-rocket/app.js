@@ -11,8 +11,14 @@ import * as ble from '../../web/core/ble.js';
 const STORAGE_KEY = 'omnisense_analog_rocket_v1';
 const STORAGE_VERSION = 1;
 const STALE_MS = 520;
+/** 遊戲中：教學區內放寬「資料過期」判定（避免藍牙略慢即判失效） */
+const GAME_STALE_MS = 2200;
 /** ADC margin beyond [baseline - M, peak + M] triggers engine failure in-game */
 const OUT_OF_RANGE_MARGIN = 160;
+/** 教學區：此 scroll 前隧道維持寬敞、緩速（約數秒可飛完） */
+const WARMUP_SCROLL_UNITS = 480;
+/** 教學區：最長保護時間（秒），與 scroll 二擇一結束 */
+const WARMUP_TIME_MS = 6500;
 const ADC_MAX = 4095;
 const PRESET_MODES = ['adc', 'adc', 'adc', 'adc', 'adc', 'dig', 'dig', 'dig', 'dig'];
 /** Analog inputs only (logical G0–G4); G5 is not offered in this lab. */
@@ -55,7 +61,9 @@ const runtime = {
     lastRaw: 0,
     lastDataMs: 0,
     engineFailed: false,
-    gameDistance: 0
+    gameDistance: 0,
+    /** 由遊戲迴圈更新：教學區內不判訊號失效／越界 */
+    gameInWarmup: true
 };
 
 function injectCss() {
@@ -254,16 +262,25 @@ function applyArLayout() {
     el.classList.toggle('ar-layout--mobile', !desktop);
 }
 
+function smoothstep01(t) {
+    const x = Math.max(0, Math.min(1, t));
+    return x * x * (3 - 2 * x);
+}
+
 /**
- * Procedural tunnel center Y and gap height for world X (pixels).
+ * Procedural tunnel: early segment is wide & centered (tutorial); later full difficulty.
+ * @param {number} scroll — internal distance; higher → harder curve & narrower gap
  */
-function tunnelProfile(p, worldX) {
+function tunnelProfile(p, worldX, scroll) {
+    const u = Math.min(1, scroll / WARMUP_SCROLL_UNITS);
+    const ease = smoothstep01(u);
     const wx = worldX * 0.011;
-    const mid =
-        p.height * 0.5 +
-        p.sin(wx * 1.08) * p.height * 0.2 +
-        p.sin(wx * 1.73 + 0.9) * p.height * 0.09;
-    const gap = p.height * 0.23 + p.sin(worldX * 0.0061 + 1.2) * p.height * 0.055;
+    const midWiggle =
+        p.sin(wx * 1.08) * p.height * 0.2 + p.sin(wx * 1.73 + 0.9) * p.height * 0.09;
+    const mid = p.height * 0.5 + midWiggle * ease;
+    const gapNarrow = p.height * 0.23 + p.sin(worldX * 0.0061 + 1.2) * p.height * 0.055;
+    const gapWide = p.height * 0.46;
+    const gap = gapWide * (1 - ease) + gapNarrow * ease;
     return { mid, gap, top: mid - gap / 2, bottom: mid + gap / 2 };
 }
 
@@ -283,8 +300,7 @@ function mountGameSketch(host) {
         vy: 0,
         dead: false,
         startedAudio: false,
-        /** Skip wall collision until aligned + brief grace (fixes instant "船體撞擊" on start) */
-        collisionOkAfterMs: 0
+        gameStartMs: 0
     };
 
     gameP5 = new P((p) => {
@@ -296,7 +312,7 @@ function mountGameSketch(host) {
 
         function alignRocketToTunnel() {
             const wx = state.scroll + ROCKET_X();
-            const tun = tunnelProfile(p, wx);
+            const tun = tunnelProfile(p, wx, state.scroll);
             state.ry = p.constrain(tun.mid, ROCKET_H / 2 + 4, p.height - ROCKET_H / 2 - 4);
         }
 
@@ -306,8 +322,8 @@ function mountGameSketch(host) {
             state.vy = 0;
             state.scroll = 0;
             state.dead = false;
+            state.gameStartMs = performance.now();
             alignRocketToTunnel();
-            state.collisionOkAfterMs = performance.now() + 850;
             p.frameRate(55);
             if (typeof ResizeObserver !== 'undefined') {
                 gameHostResizeObs = new ResizeObserver(() => {
@@ -316,7 +332,6 @@ function mountGameSketch(host) {
                         const dim = gameCanvasDims(host);
                         p.resizeCanvas(dim.w, dim.h);
                         alignRocketToTunnel();
-                        state.collisionOkAfterMs = performance.now() + 400;
                     });
                 });
                 gameHostResizeObs.observe(host);
@@ -332,9 +347,16 @@ function mountGameSketch(host) {
                 return;
             }
 
+            const nowMs = performance.now();
+            /** 教學區結束：航程達門檻「或」已超過最長保護時間 */
+            const inWarmup =
+                state.scroll < WARMUP_SCROLL_UNITS && nowMs - state.gameStartMs < WARMUP_TIME_MS;
+            runtime.gameInWarmup = inWarmup;
+            const staleLimit = inWarmup ? GAME_STALE_MS : 1000;
+
             const thrust = runtime.thrustFactor;
-            const dtOk = Date.now() - runtime.lastDataMs < STALE_MS;
-            if (!dtOk && activeView === 'game') {
+            const dtOk = Date.now() - runtime.lastDataMs < staleLimit;
+            if (!dtOk && activeView === 'game' && !inWarmup) {
                 runtime.engineFailed = true;
                 state.dead = true;
                 setFailOverlay(true);
@@ -343,7 +365,12 @@ function mountGameSketch(host) {
                 return;
             }
 
-            if (calibration && isSignalOutOfRange(runtime.lastRaw) && activeView === 'game') {
+            if (
+                calibration &&
+                isSignalOutOfRange(runtime.lastRaw) &&
+                activeView === 'game' &&
+                !inWarmup
+            ) {
                 runtime.engineFailed = true;
                 state.dead = true;
                 setFailOverlay(true);
@@ -367,18 +394,21 @@ function mountGameSketch(host) {
                 p.line(x, 0, x, p.height);
             }
 
-            state.scroll += 1.15 + state.scroll * 0.000015;
+            const easeFlight = smoothstep01(Math.min(1, state.scroll / WARMUP_SCROLL_UNITS));
+            const scrollSpeedMul = 0.28 + 0.72 * easeFlight;
+            state.scroll += (1.05 + state.scroll * 0.000012) * scrollSpeedMul;
             runtime.gameDistance = state.scroll * 0.04;
 
-            state.vy += GRAV;
+            const gravMul = 0.48 + 0.52 * easeFlight;
+            state.vy += GRAV * gravMul;
             state.vy -= thrust * THRUST_PWR;
             state.vy *= 0.995;
             state.ry += state.vy;
             state.ry = p.constrain(state.ry, ROCKET_H / 2 + 4, p.height - ROCKET_H / 2 - 4);
 
             const wx = state.scroll + ROCKET_X();
-            const tun = tunnelProfile(p, wx);
-            const canCollide = performance.now() >= state.collisionOkAfterMs;
+            const tun = tunnelProfile(p, wx, state.scroll);
+            const canCollide = !inWarmup;
             if (
                 canCollide &&
                 (state.ry - ROCKET_H / 2 <= tun.top || state.ry + ROCKET_H / 2 >= tun.bottom)
@@ -399,7 +429,7 @@ function mountGameSketch(host) {
             p.noFill();
             for (let sx = -50; sx < p.width + ahead; sx += 8) {
                 const worldX = state.scroll + sx;
-                const t0 = tunnelProfile(p, worldX);
+                const t0 = tunnelProfile(p, worldX, state.scroll);
                 p.line(sx, 0, sx, t0.top);
                 p.line(sx, t0.bottom, sx, p.height);
             }
@@ -426,6 +456,17 @@ function mountGameSketch(host) {
             p.textAlign(p.LEFT, p.TOP);
             p.textSize(p.max(11, p.width * 0.032));
             p.text(`航程 ${runtime.gameDistance.toFixed(0)} m · 推力 ${(thrust * 100).toFixed(0)}%`, 8, 8);
+            if (inWarmup) {
+                p.fill(251, 191, 36, 220);
+                p.textSize(p.max(10, p.width * 0.028));
+                p.textAlign(p.CENTER, p.TOP);
+                p.text(
+                    '教學區：航道寬、速度緩 — 用類比推力上下避開綠色邊界',
+                    p.width / 2,
+                    p.height - 52
+                );
+                p.textAlign(p.LEFT, p.TOP);
+            }
         };
 
         p.windowResized = () => {
@@ -433,7 +474,6 @@ function mountGameSketch(host) {
             p.resizeCanvas(w, h);
             if (!state.dead) {
                 alignRocketToTunnel();
-                state.collisionOkAfterMs = performance.now() + 400;
             }
         };
     }, host);
@@ -447,7 +487,7 @@ function onSensor(ev) {
     runtime.lastDataMs = Date.now();
 
     if (!ch) {
-        if (activeView === 'game') {
+        if (activeView === 'game' && !runtime.gameInWarmup) {
             runtime.engineFailed = true;
             setFailOverlay(true);
         }
@@ -463,7 +503,12 @@ function onSensor(ev) {
         runtime.thrustFactor = 0;
     }
 
-    if (activeView === 'game' && calibration && isSignalOutOfRange(raw)) {
+    if (
+        activeView === 'game' &&
+        calibration &&
+        isSignalOutOfRange(raw) &&
+        !runtime.gameInWarmup
+    ) {
         runtime.engineFailed = true;
         setFailOverlay(true);
     }
@@ -689,7 +734,7 @@ function injectShellHtml() {
     <div class="ar-game-wrap">
       <div class="ar-game-intro">
         <h1>行星逃脫</h1>
-        <p class="ar-sub">THE ESCAPE · THRUST = 校準後推力係數</p>
+        <p class="ar-sub">THE ESCAPE · 前段為寬航道教學區；之後難度逐步提高</p>
       </div>
       <div class="ar-panel ar-game-panel">
         <div id="ar-game-canvas" class="ar-game-canvas-host"></div>
@@ -705,6 +750,7 @@ function injectShellHtml() {
 function wireShellEvents() {
     document.getElementById('ar-start-game')?.addEventListener('click', () => {
         runtime.engineFailed = false;
+        runtime.gameInWarmup = true;
         runtime.lastDataMs = Date.now();
         setFailOverlay(false);
         showView('game');
