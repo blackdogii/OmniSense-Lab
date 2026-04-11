@@ -6,7 +6,7 @@
 
 ## 專案目標
 
-在**一般教室**即可操作：師生以手機／平板／筆電透過 **Web Bluetooth** 連線 **ESP32-C3** 底座，進行多通道感測、波形與插件式實驗（主控台、電子琴、魔法弓箭等），無須專用實驗室軟體。介面分為 **主控台**、**實驗專案**（官方卡帶）與 **自訂實驗**（教師貼上模組網址），教材可在**不改韌體**的前提下擴充。
+在**一般教室**即可操作：師生以手機／平板／筆電透過 **Web Bluetooth** 連線 **ESP32-C3** 底座，進行多通道感測、波形與插件式實驗（主控台、電子琴、魔法弓箭等），無須專用實驗室軟體。介面分為 **主控台**、**實驗專案**（官方卡帶）與 **自製專案**（教師貼上模組網址或匯入本機 JS），教材可在**不改韌體**的前提下擴充。
 
 ## 儲存庫結構（插件式）
 
@@ -22,7 +22,7 @@ OmniSense-Lab/
 ```
 
 - **核心與實驗解耦**：`web/core/` 負責連線與 `omnisense:data` 事件；實驗僅實作 `mount` / `unmount` / 可選 `onConnected`。
-- **自訂卡帶**：Shell 以動態 `import()` 載入 **https（或本機 http）上的 ES module**；教師可將模組託管於 GitHub Pages、Lovable 匯出站等，並搭配 [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) 與 AI 提示詞產生教案。
+- **自製專案（卡帶）**：Shell 以動態 `import()` 載入 **https（或本機 http）上的 ES module**，或使用 **匯入本地端 JS 檔**（單一 `.js`、無需 CORS）；教師可將模組託管於 GitHub Pages、Lovable 匯出站等，並搭配 [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) 與 AI 提示詞產生教案。
 - **韌體**：請於 Arduino IDE 開啟 **`firmware/OmniSense_Main/OmniSense_Main.ino`**（若根目錄仍有舊資料夾 `OmniSense_Main`，請改以 `firmware/` 下為準並刪除重複）。
 
 ## Web 使用方式
@@ -41,7 +41,7 @@ python -m http.server 8080
 |------|------|
 | [docs/PRD.md](docs/PRD.md) | 需求與願景 |
 | [docs/PROTOCOL.md](docs/PROTOCOL.md) | BLE 指令、封包、觸控數值定義 |
-| [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) | **自訂實驗（外部卡帶）**：網址載入、CORS、事件介面、給 AI 的提示詞範例 |
+| [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) | **自製專案（外部卡帶）**：網址載入、本機 JS、CORS、事件介面、給 AI 的提示詞範例 |
 | [docs/WIRING_GUIDE.md](docs/WIRING_GUIDE.md) | 腳位與接線建議 |
 | [docs/VERSIONING.md](docs/VERSIONING.md) | 版本號與同步方式 |
 
@@ -57,7 +57,7 @@ python -m http.server 8080
 ### 教師／第三方自託管（不併入儲庫）
 
 1. 依 [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) 實作單一（或少量）ES module，並部署到 **HTTPS**（開發可用 **localhost**）。
-2. 在 OmniSense Lab 的 **「自訂實驗」**貼上該模組的完整 URL 即可執行；適合搭配 Lovable 等工具，並將 `PROTOCOL.md` + `CUSTOM_MODULE.md` 一併餵給 AI 以產生量測儀表等互動教材。
+2. 在 OmniSense Lab 的 **「自製專案」**貼上該模組的完整 URL，或使用 **匯入本地端 JS 檔** 即可執行；適合搭配 Lovable 等工具，並將 `PROTOCOL.md` + `CUSTOM_MODULE.md` 一併餵給 AI 以產生量測儀表等互動教材。
 
 ## 授權
 

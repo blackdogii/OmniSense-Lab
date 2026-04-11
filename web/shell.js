@@ -1,7 +1,7 @@
 /**
- * App Shell：三區導覽（主控台／實驗專案／自訂）、卡帶式動態載入、生命週期 teardown。
+ * App Shell：三區導覽（主控台／實驗專案／自製專案）、卡帶式動態載入、生命週期 teardown。
  * 官方模組：import ../experiments/{id}/app.js
- * 自訂：loadExternalModule(url) → 動態 import（需 CORS + application/javascript）
+ * 自製專案：loadExternalModule(url) → 動態 import（遠端需 CORS；本地為 blob URL）
  */
 
 import { pushBlePacket, clearBleQueue, startEventLoop } from './core/events.js';
@@ -17,8 +17,18 @@ let lastShellPresetApplied = false;
 
 /** @type {'console' | 'projects' | 'custom'} */
 let shellNav = 'console';
-/** @type {null | { type: 'official', id: string } | { type: 'external', url: string }} */
+/** @type {null | { type: 'official', id: string } | { type: 'external', url: string } | { type: 'local', name: string }} */
 let experimentRun = null;
+
+/** 本機匯入 JS 時的 object URL，離開模組時須 revoke */
+let localModuleBlobUrl = null;
+
+function revokeLocalModuleBlobUrl() {
+    if (localModuleBlobUrl) {
+        URL.revokeObjectURL(localModuleBlobUrl);
+        localModuleBlobUrl = null;
+    }
+}
 
 async function getProjects() {
     if (cachedProjects) return cachedProjects;
@@ -41,7 +51,7 @@ function buildShellNav() {
     const tabs = [
         { id: 'console', label: '主控台', shortLabel: '主控台', icon: 'layout-dashboard' },
         { id: 'projects', label: '實驗專案', shortLabel: '專案', icon: 'layers' },
-        { id: 'custom', label: '自訂實驗', shortLabel: '自訂', icon: 'link-2' }
+        { id: 'custom', label: '自製專案', shortLabel: '自製', icon: 'link-2' }
     ];
     for (const mobile of [false, true]) {
         const container = document.getElementById(mobile ? 'navMobileInner' : 'navDesktop');
@@ -98,11 +108,18 @@ function updateHeaderSubtitle() {
         return;
     }
     if (shellNav === 'custom') {
-        sub.textContent = experimentRun ? '外部實驗模組' : '自訂實驗（URL）';
+        if (!experimentRun) {
+            sub.textContent = '自製專案（網址或本機檔）';
+        } else if (experimentRun.type === 'local') {
+            sub.textContent = `本機模組 · ${experimentRun.name}`;
+        } else {
+            sub.textContent = '外部實驗模組';
+        }
     }
 }
 
 async function teardownActiveModule() {
+    revokeLocalModuleBlobUrl();
     if (!activeModule) return;
     try {
         if (typeof activeModule.cleanup === 'function') await activeModule.cleanup();
@@ -115,7 +132,7 @@ async function teardownActiveModule() {
 }
 
 /**
- * 自訂卡帶：以動態 import 載入遠端 ES 模組（需伺服器允許 CORS）。
+ * 自製專案卡帶：以動態 import 載入 ES 模組（http(s) 需 CORS；blob: 為本機匯入）。
  * @param {string} url
  * @returns {Promise<object>}
  */
@@ -126,8 +143,9 @@ export async function loadExternalModule(url) {
     } catch {
         throw new Error('無效的 URL');
     }
-    if (!/^https?:$/i.test(u.protocol)) {
-        throw new Error('僅支援 http(s) 模組位址');
+    const ok = /^https?:$/i.test(u.protocol) || /^blob:$/i.test(u.protocol);
+    if (!ok) {
+        throw new Error('僅支援 http(s) 或本機匯入（blob）模組位址');
     }
     return import(/* @vite-ignore */ u.href);
 }
@@ -307,6 +325,45 @@ async function launchCustomExperiment(urlString) {
     }
 }
 
+/**
+ * 自製專案：從本機選取的 .js 檔建立 blob URL 後動態 import（無需 CORS）。
+ * @param {File} file
+ */
+async function launchLocalCustomModule(file) {
+    await teardownActiveModule();
+    shellNav = 'custom';
+    const blob = new Blob([await file.text()], { type: 'text/javascript' });
+    localModuleBlobUrl = URL.createObjectURL(blob);
+    experimentRun = { type: 'local', name: file.name };
+    refreshLayout();
+    setNavActive();
+    updateHeaderSubtitle();
+
+    try {
+        const mod = await loadExternalModule(localModuleBlobUrl);
+        activeModule = mod;
+        activeId = 'external';
+        const root = getContainer();
+        if (!mod.mount) {
+            throw new Error('模組必須 export async function mount(root)');
+        }
+        await mod.mount(root);
+        if (ble.isConnected() && mod.onConnected) {
+            try {
+                await mod.onConnected();
+            } catch (e) {
+                console.warn(e);
+            }
+        }
+    } catch (e) {
+        console.warn(e);
+        experimentRun = null;
+        revokeLocalModuleBlobUrl();
+        refreshLayout();
+        window.alert('無法載入本機模組（須為 ES module，且 export mount）。\n' + String(e.message || e));
+    }
+}
+
 async function onShellNavClick(target) {
     if (target === shellNav && experimentRun) {
         await onExperimentBack();
@@ -390,6 +447,19 @@ async function init() {
             return;
         }
         launchCustomExperiment(v).catch(console.error);
+    });
+
+    const customFileInput = document.getElementById('customModuleFile');
+    document.getElementById('customImportFileBtn')?.addEventListener('click', () => customFileInput?.click());
+    customFileInput?.addEventListener('change', () => {
+        const f = customFileInput.files?.[0];
+        customFileInput.value = '';
+        if (!f) return;
+        if (!/\.js$/i.test(f.name)) {
+            window.alert('請選擇副檔名為 .js 的檔案');
+            return;
+        }
+        launchLocalCustomModule(f).catch(console.error);
     });
 
     document.getElementById('connectBtn')?.addEventListener('click', onConnectClick);

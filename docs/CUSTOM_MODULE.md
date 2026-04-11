@@ -1,6 +1,6 @@
-# 自訂實驗模組（外部卡帶）
+# 自製專案模組（外部卡帶）
 
-教師或第三方可在**不改韌體**的前提下，自行託管一個 **ES module**（JavaScript），由 OmniSense Lab 主程式以網址動態載入。詳細 BLE 與事件規格見 **[PROTOCOL.md](./PROTOCOL.md)**。
+教師或第三方可在**不改韌體**的前提下，自行託管一個 **ES module**（JavaScript），由 OmniSense Lab 主程式以網址動態載入，或使用 **匯入本地端 JS 檔**載入單一檔案。詳細 BLE 與事件規格見 **[PROTOCOL.md](./PROTOCOL.md)**。
 
 ## 適用情境
 
@@ -19,8 +19,8 @@
 
 ## 使用者操作（Shell）
 
-1. 開啟 **「自訂實驗」**分頁。
-2. 貼上模組的 **完整 `https://…`（或開發時 `http://localhost/…`）網址**。
+1. 開啟 **「自製專案」**分頁。
+2. **擇一**：貼上模組的 **完整 `https://…`（或開發時 `http://localhost/…`）網址**，並按「啟動實驗」；或按 **「匯入本地端 JS 檔」** 選取單一 `.js`（無需 CORS，適合離線或開發中試跑）。
 3. 確認瀏覽器已透過主控台完成 **Web Bluetooth 連線**（與官方實驗相同）。
 
 ## 模組必須滿足
@@ -28,12 +28,13 @@
 | 項目 | 說明 |
 |------|------|
 | **協定** | 僅使用 `window` 上的 **`omnisense:data`** 事件（別名 `omnisense-data`）取得資料；**不要**在模組內直接操作 GATT。 |
-| **匯出** | 必須 **`export async function mount(root)`**。Shell **只**檢查並呼叫 `mount`；若僅 export `init` 而無 `mount`，自訂實驗**載入會失敗**。 |
+| **匯出** | 必須 **`export async function mount(root)`**。Shell **只**檢查並呼叫 `mount`；若僅 export `init` 而無 `mount`，自製專案**載入會失敗**。 |
 | **釋放資源** | 建議實作 **`cleanup()` 或 `unmount()`**：移除事件監聽、停止動畫／`p5.remove()`、關閉 `AudioContext` 等。切換實驗時 Shell **會優先呼叫 `cleanup()`**，否則才呼叫 `unmount()`。 |
 | **可選** | `export async function onConnected()`：在 BLE 已連線時由 Shell 呼叫（例如下發腳位與取樣）。 |
-| **網路** | 模組 URL 須為 **`http:` 或 `https:`**；託管端須對 **OmniSense Lab 網頁來源**允許 **CORS**，並以適合 ES module 的方式提供（例如 `Content-Type: application/javascript`）。 |
+| **網路（網址載入）** | 模組 URL 須為 **`http:` 或 `https:`**；託管端須對 **OmniSense Lab 網頁來源**允許 **CORS**，並以適合 ES module 的方式提供（例如 `Content-Type: application/javascript`）。 |
+| **本機檔** | 單一 **`.js`** 檔以瀏覽器建立 **blob URL** 後動態 `import()`，**不需** CORS；若模組內含指向其它檔案的相對路徑 `import`，本機單檔模式**無法**解析，請改為網址託管或將依賴改為 URL／內嵌。 |
 
-載入失敗時，介面常見提示包含：**CORS、非 ES module、網址錯誤**。
+載入失敗時，介面常見提示包含：**CORS、非 ES module、網址錯誤**（網址模式）；本機模式則多為 **語法錯誤、非 ES module、未 export `mount`**。
 
 ## 資料怎麼讀
 
@@ -55,7 +56,7 @@ function onData(ev) {
 
 ## 與「官方實驗」路徑的差異
 
-| | 官方 `experiments/<id>/app.js` | 自訂網址模組 |
+| | 官方 `experiments/<id>/app.js` | 自製專案（網址／本機 `.js`） |
 |--|-------------------------------|--------------|
 | 載入方式 | 同網域相對路徑 | 使用者輸入的絕對 URL |
 | `import '../../web/core/...'` | 可用 | 不可用（路徑相對於**你的**模組位址） |
