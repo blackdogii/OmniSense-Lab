@@ -2,6 +2,40 @@
   OmniSense Lab — 專案說明（作者：小威老師 · 授權見 LICENSE）
 -->
 
+# 使用 AI 自製專案（置頂詳細教學）
+
+以下步驟可讓您用生成式 AI 產出 **單一 `.js` 模組**，再於 OmniSense Lab 的 **「自製專案」** 以 **匯入本地端 JS 檔** 執行（無須改韌體）。完整規格仍以 [docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md) 為準。
+
+1. **下載檔案**  
+   - ：[docs/CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md)
+   - ：[docs/PROTOCOL.md](docs/PROTOCOL.md)- ：[docs/WIRING_GUIDE.md](docs/WIRING_GUIDE.md)  
+
+
+2. **複製以下提示詞**  
+   ```
+   請在單一 JavaScript 檔案中，實作 OmniSense Lab 的「外部實驗模組」（ES module），並遵守下列約束：
+
+   - 必須 export：async function mount(root) — 在 root 內建立 UI；不可只 export init 而沒有 mount。
+   - 建議 export：async function cleanup() 或 unmount()，並在內部移除對 omnisense:data 的監聽、停止動畫等。
+   - 僅透過 window.addEventListener('omnisense:data', …) 讀取 event.detail（含 channels、mask 等）；語意與數值定義必須符合我一併提供的 PROTOCOL.md；邏輯通道與腳位對照依 WIRING_GUIDE.md。
+   - 不要在模組內使用 Web Bluetooth API；不要 import 本專案儲庫內的相對路徑 web/core/...。
+   - 請只輸出完整可執行的單一 .js 檔案內容，不要省略，並在開頭簡短註解說明此實驗用途。
+   ```
+
+3. **將第 1～2 步交給生成式 AI 並取得 `.js` 檔**  
+   開啟 **Gemini**、**ChatGPT**、...等生成式 AI，在對話中：  
+   - 先貼上第 1 步的文件
+   - 再貼上第 2 步的提示詞
+   - 最後補充您想要的專案設計（例如：即時波形、計數器、簡易儀表、互動遊戲...）越詳細越好。(也可先請AI生成，再修改)。
+   請 AI **只產出單一** `.js` 檔（ES module）。將回覆中的程式碼存成 **一個** `.js` 檔，放在本機（電腦或手機上瀏覽器可選取的位置，例如「下載」資料夾）。
+   **注意**：自製專案「匯入本地端 JS 檔」模式適合 **無額外相對路徑 `import` 其它檔案** 的單檔模組；若需多檔或套件，請改為將模組託管在 **HTTPS** 網址，並在 Lab 內改以 **貼上網址** 載入（見 [CUSTOM_MODULE.md](docs/CUSTOM_MODULE.md)）。
+
+4. **在 OmniSense Lab 中載入**  
+   使用 **Chrome／Edge** 等支援 Web Bluetooth 的瀏覽器，依下方 [Web 使用方式](#web-使用方式) 開啟本專案頁面（**HTTPS** 或 **localhost**）。進入 **「自製專案」** 分頁，點 **「匯入本地端 JS 檔」**，選取剛儲存的 `.js`。  
+   與官方實驗相同：請先在 **主控台** 完成與 ESP32 的 **Web Bluetooth** 連線，資料才會透過 `omnisense:data` 傳入您的模組。
+
+---
+
 # OmniSense Lab
 
 ## 專案目標
